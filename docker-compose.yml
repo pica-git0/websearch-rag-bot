@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: websearch_rag_bot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - websearch-network
+
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - websearch-network
+
+  # RAG Service (Python + LangChain)
+  rag-service:
+    build:
+      context: ./rag-service
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=websearch_rag_bot
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    depends_on:
+      - postgres
+      - qdrant
+    networks:
+      - websearch-network
+    volumes:
+      - ./rag-service:/app
+      - /app/node_modules
+
+  # Backend (Nest.js + GraphQL)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=websearch_rag_bot
+      - DATABASE_USER=postgres
+      - DATABASE_PASSWORD=password
+      - RAG_SERVICE_URL=http://rag-service:8000
+    depends_on:
+      - postgres
+      - rag-service
+    networks:
+      - websearch-network
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+  # Frontend (Next.js + React)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_GRAPHQL_URL=http://localhost:4000/graphql
+      - NEXT_PUBLIC_RAG_SERVICE_URL=http://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - websearch-network
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
+  qdrant_data:
+
+networks:
+  websearch-network:
+    driver: bridge
