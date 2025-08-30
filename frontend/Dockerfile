@@ -11,11 +11,8 @@ RUN npm install
 # 애플리케이션 코드 복사
 COPY . .
 
-# 빌드
-RUN npm run build
-
 # 포트 노출
 EXPOSE 3000
 
 # 애플리케이션 실행
-CMD ["npm", "start"]
+CMD ["npm", "run", "dev"]
