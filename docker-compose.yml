@@ -48,7 +48,6 @@ services:
       - websearch-network
     volumes:
       - ./rag-service:/app
-      - /app/node_modules
 
   # Backend (Nest.js + GraphQL)
   backend:
@@ -71,7 +70,6 @@ services:
       - websearch-network
     volumes:
       - ./backend:/app
-      - /app/node_modules
 
   # Frontend (Next.js + React)
   frontend:
@@ -89,7 +87,6 @@ services:
       - websearch-network
     volumes:
       - ./frontend:/app
-      - /app/node_modules
 
 volumes:
   postgres_data:
