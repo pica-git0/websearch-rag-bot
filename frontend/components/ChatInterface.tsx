@@ -1,58 +1,46 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { useMutation, useQuery } from '@apollo/client'
-import { gql } from '@apollo/client'
 import { PaperAirplaneIcon } from '@heroicons/react/24/outline'
 import { MessageList } from './MessageList'
 import { MessageInput } from './MessageInput'
 
-const GET_MESSAGES = gql`
-  query GetMessages($conversationId: String!) {
-    messages(conversationId: $conversationId) {
-      id
-      content
-      role
-      sources
-      createdAt
-    }
-  }
-`
+interface Message {
+  id: string
+  content: string
+  role: 'user' | 'assistant'
+  sources?: string[]
+  createdAt: string
+}
 
-const SEND_MESSAGE = gql`
-  mutation SendMessage($conversationId: String!, $content: String!) {
-    sendMessage(conversationId: $conversationId, content: $content) {
-      id
-      content
-      role
-      sources
-      createdAt
-    }
-  }
-`
+interface ChatInterfaceProps {
+  selectedConversationId?: string | null
+  onConversationSelect?: (id: string) => void
+}
 
-export function ChatInterface() {
-  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
+export function ChatInterface({ selectedConversationId, onConversationSelect }: ChatInterfaceProps) {
+  const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const { data: messagesData, loading: messagesLoading, refetch } = useQuery(GET_MESSAGES, {
-    variables: { conversationId: selectedConversationId || '' },
-    skip: !selectedConversationId,
-  })
+  // 선택된 대화가 변경될 때 메시지 로드
+  useEffect(() => {
+    if (selectedConversationId) {
+      const savedMessages = localStorage.getItem(`messages_${selectedConversationId}`)
+      if (savedMessages) {
+        setMessages(JSON.parse(savedMessages))
+      } else {
+        setMessages([])
+      }
+    }
+  }, [selectedConversationId])
 
-  const [sendMessage] = useMutation(SEND_MESSAGE, {
-    onCompleted: () => {
-      refetch()
-      setIsLoading(false)
-      setInputValue('')
-    },
-    onError: (error) => {
-      console.error('Error sending message:', error)
-      setIsLoading(false)
-    },
-  })
+  // 메시지를 로컬 스토리지에 저장
+  const saveMessages = (conversationId: string, messages: Message[]) => {
+    localStorage.setItem(`messages_${conversationId}`, JSON.stringify(messages))
+    setMessages(messages)
+  }
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -60,23 +48,72 @@ export function ChatInterface() {
 
   useEffect(() => {
     scrollToBottom()
-  }, [messagesData])
+  }, [messages])
 
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !selectedConversationId || isLoading) return
 
     setIsLoading(true)
+    
+    // 사용자 메시지 추가
+    const userMessage: Message = {
+      id: `msg_${Date.now()}_user`,
+      content: inputValue.trim(),
+      role: 'user',
+      createdAt: new Date().toISOString(),
+    }
+    
+    const updatedMessages = [...messages, userMessage]
+    saveMessages(selectedConversationId, updatedMessages)
+    
     try {
-      await sendMessage({
-        variables: {
-          conversationId: selectedConversationId,
-          content: inputValue.trim(),
+      // RAG 서비스에 메시지 전송
+      const response = await fetch('http://localhost:8000/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          message: inputValue.trim(),
+          conversation_id: selectedConversationId,
+          use_web_search: true,
+        }),
       })
+      
+      if (response.ok) {
+        const data = await response.json()
+        
+        // AI 응답 추가
+        const aiMessage: Message = {
+          id: `msg_${Date.now()}_ai`,
+          content: data.response,
+          role: 'assistant',
+          sources: data.sources,
+          createdAt: new Date().toISOString(),
+        }
+        
+        const finalMessages = [...updatedMessages, aiMessage]
+        saveMessages(selectedConversationId, finalMessages)
+      } else {
+        throw new Error('Failed to get response from RAG service')
+      }
     } catch (error) {
       console.error('Error sending message:', error)
-      setIsLoading(false)
+      
+      // 에러 메시지 추가
+      const errorMessage: Message = {
+        id: `msg_${Date.now()}_error`,
+        content: '죄송합니다. 서비스에 일시적인 문제가 발생했습니다.',
+        role: 'assistant',
+        createdAt: new Date().toISOString(),
+      }
+      
+      const finalMessages = [...updatedMessages, errorMessage]
+      saveMessages(selectedConversationId, finalMessages)
     }
+    
+    setIsLoading(false)
+    setInputValue('')
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -87,11 +124,15 @@ export function ChatInterface() {
   }
 
   const handleNewConversation = () => {
-    setSelectedConversationId(null)
+    if (onConversationSelect) {
+      onConversationSelect('')
+    }
   }
 
   const handleConversationSelect = (id: string) => {
-    setSelectedConversationId(id)
+    if (onConversationSelect) {
+      onConversationSelect(id)
+    }
   }
 
   if (!selectedConversationId) {
@@ -116,12 +157,12 @@ export function ChatInterface() {
     <div className="flex-1 flex flex-col">
       {/* 메시지 목록 */}
       <div className="flex-1 overflow-y-auto p-4">
-        {messagesLoading ? (
+        {isLoading ? (
           <div className="flex items-center justify-center h-full">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
           </div>
         ) : (
-          <MessageList messages={messagesData?.messages || []} />
+          <MessageList messages={messages} />
         )}
         <div ref={messagesEndRef} />
       </div>

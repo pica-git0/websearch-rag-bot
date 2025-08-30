@@ -7,11 +7,17 @@ import { Header } from '@/components/Header'
 
 export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
 
   return (
     <div className="h-screen flex overflow-hidden bg-gray-50">
       {/* 사이드바 */}
-      <Sidebar open={sidebarOpen} setOpen={setSidebarOpen} />
+      <Sidebar 
+        open={sidebarOpen} 
+        setOpen={setSidebarOpen}
+        onConversationSelect={setSelectedConversationId}
+        selectedConversationId={selectedConversationId}
+      />
       
       {/* 메인 콘텐츠 */}
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -20,7 +26,10 @@ export default function Home() {
         
         {/* 채팅 인터페이스 */}
         <main className="flex-1 overflow-hidden">
-          <ChatInterface />
+          <ChatInterface 
+            selectedConversationId={selectedConversationId}
+            onConversationSelect={setSelectedConversationId}
+          />
         </main>
       </div>
     </div>
