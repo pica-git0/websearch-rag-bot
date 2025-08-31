@@ -11,6 +11,10 @@ import uuid
 from typing import List, Dict, Any, Tuple
 import asyncio
 
+from dotenv import load_dotenv
+
+
+load_dotenv()  
 class RAGService:
     def __init__(self, vector_store, web_search):
         self.vector_store = vector_store
@@ -20,7 +24,6 @@ class RAGService:
         # LLM 초기화
         if self.openai_api_key:
             self.llm = OpenAI(
-                openai_api_key=self.openai_api_key,
                 temperature=0.7,
                 model_name="gpt-3.5-turbo"
             )
