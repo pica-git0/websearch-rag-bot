@@ -47,12 +47,17 @@ export class LoggingService {
       const kafka = new Kafka({
         clientId: 'backend-service',
         brokers: kafkaBrokers.split(','),
+        retry: {
+          initialRetryTime: 1000,
+          retries: 3,
+        },
       });
       this.kafkaProducer = kafka.producer();
       await this.kafkaProducer.connect();
       this.logger.log(`Kafka producer initialized with brokers: ${kafkaBrokers}`);
     } catch (error) {
       this.logger.error('Failed to initialize Kafka producer', error);
+      this.kafkaProducer = null;
     }
   }
 
@@ -154,18 +159,28 @@ export class LoggingService {
   }
 
   private async sendToKafka(topic: string, data: any) {
-    if (this.kafkaProducer) {
-      try {
-        await this.kafkaProducer.send({
-          topic,
-          messages: [
-            {
-              value: JSON.stringify(data),
-            },
-          ],
-        });
-      } catch (error) {
-        this.logger.error('Failed to send log to Kafka', error);
+    if (!this.kafkaProducer) {
+      return; // Kafka producer가 없으면 무시
+    }
+
+    try {
+      await this.kafkaProducer.send({
+        topic,
+        messages: [
+          {
+            value: JSON.stringify(data),
+          },
+        ],
+      });
+    } catch (error) {
+      this.logger.error('Failed to send log to Kafka', error);
+      // 연결 실패 시 producer를 null로 설정하여 재초기화 유도
+      if (error.message.includes('disconnected') || error.message.includes('ENOTFOUND')) {
+        this.kafkaProducer = null;
+        // 재연결 시도
+        setTimeout(() => {
+          this.setupKafkaAsync();
+        }, 5000);
       }
     }
   }
