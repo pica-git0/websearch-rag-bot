@@ -27,7 +27,7 @@ class WebSearchService:
         # DuckDuckGo API (Google API가 없을 때 대체)
         self.duckduckgo_url = "https://api.duckduckgo.com/"
     
-    async def search(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+    async def search(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
         """웹 검색 수행 - Google Custom Search API 우선, 대체로 DuckDuckGo 사용"""
         try:
             # Google Custom Search API 사용 시도
