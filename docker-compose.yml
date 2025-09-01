@@ -14,6 +14,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - websearch-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Qdrant Vector Database
   qdrant:
@@ -23,6 +28,125 @@ services:
       - "6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
+    networks:
+      - websearch-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Zookeeper for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - websearch-network
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+
+  # Kafka
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    networks:
+      - websearch-network
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+
+  # Elasticsearch
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - websearch-network
+
+  # Kibana
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - websearch-network
+
+  # Logstash
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    ports:
+      - "5044:5044"
+      - "5001:5000/tcp"
+      - "5001:5000/udp"
+      - "9600:9600"
+    environment:
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+    volumes:
+      - ./logging/logstash/pipeline:/usr/share/logstash/pipeline
+      - ./logging/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml
+    depends_on:
+      - elasticsearch
+      - kafka
+    networks:
+      - websearch-network
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./logging/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - websearch-network
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./logging/grafana/provisioning:/etc/grafana/provisioning
+      - ./logging/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+      - elasticsearch
     networks:
       - websearch-network
 
@@ -41,13 +165,22 @@ services:
       - POSTGRES_DB=websearch_rag_bot
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=password
+      - KAFKA_BROKERS=kafka:29092
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
     depends_on:
       - postgres
       - qdrant
+      - kafka
+      - elasticsearch
     networks:
       - websearch-network
     volumes:
       - ./rag-service:/app
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Backend (Nest.js + GraphQL)
   backend:
@@ -63,13 +196,22 @@ services:
       - DATABASE_USER=postgres
       - DATABASE_PASSWORD=password
       - RAG_SERVICE_URL=http://rag-service:8000
+      - KAFKA_BROKERS=kafka:29092
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
     depends_on:
       - postgres
       - rag-service
+      - kafka
+      - elasticsearch
     networks:
       - websearch-network
     volumes:
-      - ./backend:/app
+      - ./backend/src:/app/src
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Frontend (Next.js + React)
   frontend:
@@ -87,10 +229,21 @@ services:
       - websearch-network
     volumes:
       - ./frontend:/app
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   postgres_data:
   qdrant_data:
+  zookeeper_data:
+  zookeeper_logs:
+  kafka_data:
+  elasticsearch_data:
+  prometheus_data:
+  grafana_data:
 
 networks:
   websearch-network:

@@ -1,0 +1,85 @@
+{
+  "title": "WebSearch RAG Bot - Logs Analysis",
+  "tags": ["rag-bot", "logs"],
+  "style": "dark",
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Log Volume by Service",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "count_over_time({service=~\".*\"}[5m])",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+    },
+    {
+      "id": 2,
+      "title": "Error Rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate({type=\"error\"}[5m])",
+          "legendFormat": "Errors per second"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+    },
+    {
+      "id": 3,
+      "title": "Performance Metrics",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "avg_over_time({type=\"performance\"} | json | duration[5m])",
+          "legendFormat": "Average Duration"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+    },
+    {
+      "id": 4,
+      "title": "Application Events",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "count_over_time({type=\"application\"}[5m])",
+          "legendFormat": "Application Events"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+    },
+    {
+      "id": 5,
+      "title": "HTTP Request Rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate({type=\"request\"}[5m])",
+          "legendFormat": "Requests per second"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+    },
+    {
+      "id": 6,
+      "title": "GraphQL Operations",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "count_over_time({type=\"graphql\"}[5m])",
+          "legendFormat": "GraphQL Operations"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+    }
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s"
+}
