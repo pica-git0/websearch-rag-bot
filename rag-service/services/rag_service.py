@@ -1,10 +1,10 @@
-from langchain.llms import OpenAI
+from langchain_openai import ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import Qdrant
-from langchain.document_loaders import WebBaseLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.vectorstores import Qdrant
+from langchain_community.document_loaders import WebBaseLoader
 from langchain.schema import Document
 import os
 import uuid
@@ -23,9 +23,9 @@ class RAGService:
         
         # LLM 초기화
         if self.openai_api_key:
-            self.llm = OpenAI(
+            self.llm = ChatOpenAI(
                 temperature=0.7,
-                model_name="gpt-3.5-turbo"
+                model="gpt-3.5-turbo"
             )
         else:
             # OpenAI API 키가 없을 경우 대체 LLM 사용
@@ -50,7 +50,7 @@ class RAGService:
         
         return FallbackLLM()
     
-    async def chat(self, message: str, conversation_id: str = None, use_web_search: bool = True) -> Tuple[str, List[str], str]:
+    async def chat(self, message: str, conversation_id: str = None, use_web_search: bool = True, search_results: List[str] = None) -> Tuple[str, List[str], str]:
         """챗봇 대화 처리"""
         try:
             # 대화 ID 생성
@@ -71,16 +71,26 @@ class RAGService:
             sources = []
             
             if use_web_search:
-                # 웹 검색으로 관련 정보 찾기
-                search_results = await self.web_search.search(message, max_results=3)
-                
-                for result in search_results:
-                    if result.get('url'):
-                        # URL에서 콘텐츠 추출
-                        content = await self.web_search.fetch_url_content(result['url'])
-                        if content.get('content'):
-                            context_docs.append(content)
-                            sources.append(result['url'])
+                if search_results:
+                    # 백엔드로부터 받은 검색 결과 사용
+                    for url in search_results:
+                        if url:
+                            # URL에서 콘텐츠 추출
+                            content = await self.web_search.fetch_url_content(url)
+                            if content.get('content'):
+                                context_docs.append(content)
+                                sources.append(url)
+                else:
+                    # 백엔드 검색 결과가 없으면 직접 웹 검색 수행
+                    search_results = await self.web_search.search(message, max_results=3)
+                    
+                    for result in search_results:
+                        if result.get('url'):
+                            # URL에서 콘텐츠 추출
+                            content = await self.web_search.fetch_url_content(result['url'])
+                            if content.get('content'):
+                                context_docs.append(content)
+                                sources.append(result['url'])
             
             # 벡터 스토어에서 유사한 문서 검색
             vector_results = self.vector_store.search(message, top_k=3)
@@ -97,7 +107,14 @@ class RAGService:
             prompt = self._create_prompt(message, context)
             
             # LLM 응답 생성
-            response = self.llm(prompt)
+            if hasattr(self.llm, 'invoke'):
+                # 최신 LangChain API
+                response = self.llm.invoke(prompt)
+                if hasattr(response, 'content'):
+                    response = response.content
+            else:
+                # 구버전 호환성
+                response = self.llm(prompt)
             
             # 대화 메모리에 저장
             memory.chat_memory.add_user_message(message)

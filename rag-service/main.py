@@ -38,6 +38,7 @@ class ChatRequest(BaseModel):
     message: str
     conversation_id: Optional[str] = None
     use_web_search: bool = True
+    search_results: Optional[List[str]] = None
 
 class ChatResponse(BaseModel):
     response: str
@@ -96,7 +97,8 @@ async def chat(request: ChatRequest):
         response, sources, conversation_id = await rag_service.chat(
             request.message, 
             request.conversation_id,
-            request.use_web_search
+            request.use_web_search,
+            request.search_results
         )
         
         duration = time.time() - start_time
