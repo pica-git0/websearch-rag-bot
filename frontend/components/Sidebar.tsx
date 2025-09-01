@@ -5,6 +5,8 @@ import { Dialog, Transition } from '@headlessui/react'
 import { XMarkIcon, PlusIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { format } from 'date-fns'
 import { ko } from 'date-fns/locale'
+import { useMutation, useQuery } from '@apollo/client'
+import { CREATE_CONVERSATION, GET_CONVERSATIONS, DELETE_CONVERSATION } from '../lib/graphql'
 
 interface Conversation {
   id: string
@@ -24,40 +26,59 @@ export function Sidebar({ open, setOpen, onConversationSelect, selectedConversat
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(false)
 
-  // 로컬 스토리지에서 대화 목록 로드
-  useEffect(() => {
-    const savedConversations = localStorage.getItem('conversations')
-    if (savedConversations) {
-      setConversations(JSON.parse(savedConversations))
-    }
-  }, [])
+  // GraphQL 뮤테이션과 쿼리
+  const [createConversation] = useMutation(CREATE_CONVERSATION)
+  const [deleteConversation] = useMutation(DELETE_CONVERSATION)
+  const { data: conversationsData, loading: conversationsLoading, refetch } = useQuery(GET_CONVERSATIONS)
 
-  // 대화 목록을 로컬 스토리지에 저장
-  const saveConversations = (conversations: Conversation[]) => {
-    localStorage.setItem('conversations', JSON.stringify(conversations))
-    setConversations(conversations)
-  }
+  // 대화 목록 업데이트
+  useEffect(() => {
+    if (conversationsData?.conversations) {
+      setConversations(conversationsData.conversations)
+    }
+  }, [conversationsData])
 
   const handleNewChat = async () => {
-    const newConversation: Conversation = {
-      id: `conv_${Date.now()}`,
-      title: '새 대화',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+    try {
+      setLoading(true)
+      const { data } = await createConversation({
+        variables: {
+          title: '새 대화'
+        }
+      })
+
+      if (data?.createConversation) {
+        const newConversation = data.createConversation
+        setConversations(prev => [newConversation, ...prev])
+        
+        if (onConversationSelect) {
+          onConversationSelect(newConversation.id)
+        }
+        setOpen(false)
+        
+        // 대화 목록 새로고침
+        refetch()
+      }
+    } catch (error) {
+      console.error('Error creating conversation:', error)
+    } finally {
+      setLoading(false)
     }
-    
-    const updatedConversations = [...conversations, newConversation]
-    saveConversations(updatedConversations)
-    
-    if (onConversationSelect) {
-      onConversationSelect(newConversation.id)
-    }
-    setOpen(false)
   }
 
   const handleDeleteConversation = async (id: string) => {
-    const updatedConversations = conversations.filter(conv => conv.id !== id)
-    saveConversations(updatedConversations)
+    try {
+      await deleteConversation({
+        variables: { id }
+      })
+      
+      setConversations(prev => prev.filter(conv => conv.id !== id))
+      
+      // 대화 목록 새로고침
+      refetch()
+    } catch (error) {
+      console.error('Error deleting conversation:', error)
+    }
   }
 
   const SidebarContent = () => (
@@ -85,7 +106,7 @@ export function Sidebar({ open, setOpen, onConversationSelect, selectedConversat
         </div>
 
         <div className="px-4">
-          {loading ? (
+          {conversationsLoading ? (
             <div className="text-center py-4">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600 mx-auto"></div>
             </div>
@@ -111,7 +132,17 @@ export function Sidebar({ open, setOpen, onConversationSelect, selectedConversat
                       {conversation.title}
                     </p>
                     <p className="text-xs text-gray-500">
-                      {format(new Date(conversation.updatedAt), 'MMM d, yyyy', { locale: ko })}
+                      {(() => {
+                        try {
+                          const date = conversation.updatedAt ? new Date(conversation.updatedAt) : new Date(conversation.createdAt);
+                          if (isNaN(date.getTime())) {
+                            return '날짜 없음';
+                          }
+                          return format(date, 'MMM d, yyyy', { locale: ko });
+                        } catch (error) {
+                          return '날짜 없음';
+                        }
+                      })()}
                     </p>
                   </div>
                   <button

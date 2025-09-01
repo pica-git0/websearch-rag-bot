@@ -59,3 +59,10 @@ export const INDEX_URLS = gql`
     indexUrls(urls: $urls)
   }
 `;
+
+// 대화 삭제 뮤테이션
+export const DELETE_CONVERSATION = gql`
+  mutation DeleteConversation($id: String!) {
+    deleteConversation(id: $id)
+  }
+`;
