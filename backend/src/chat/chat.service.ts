@@ -40,10 +40,26 @@ export class ChatService {
   }
 
   async sendMessage(conversationId: string, content: string): Promise<{ message: Message; response: string; sources: string[] }> {
+    // 빈 메시지 체크
+    if (!content || !content.trim()) {
+      const errorMessage = this.messageRepository.create({
+        conversationId,
+        content: '검색어가 없습니다. 구체적인 질문이나 검색하고 싶은 내용을 입력해주세요.',
+        role: 'assistant',
+      });
+      await this.messageRepository.save(errorMessage);
+
+      return {
+        message: errorMessage,
+        response: '검색어가 없습니다. 구체적인 질문이나 검색하고 싶은 내용을 입력해주세요.',
+        sources: [],
+      };
+    }
+
     // 사용자 메시지 저장
     const userMessage = this.messageRepository.create({
       conversationId,
-      content,
+      content: content.trim(),
       role: 'user',
     });
     await this.messageRepository.save(userMessage);

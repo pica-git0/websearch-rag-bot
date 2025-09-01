@@ -56,7 +56,13 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
   }, [messages])
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || !selectedConversationId) return
+    if (!inputValue.trim() || !selectedConversationId) {
+      if (!inputValue.trim()) {
+        // 검색어가 없을 때 사용자에게 알림
+        alert('검색어를 입력해주세요.')
+      }
+      return
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),

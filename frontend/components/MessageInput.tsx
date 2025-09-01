@@ -34,7 +34,7 @@ export function MessageInput({
           placeholder={
             disabled
               ? '대화를 선택해주세요'
-              : '메시지를 입력하세요 (Enter로 전송, Shift+Enter로 줄바꿈)'
+              : '검색하고 싶은 내용을 입력하세요 (Enter로 전송, Shift+Enter로 줄바꿈)'
           }
           className="input-field resize-none overflow-hidden"
           style={{
@@ -52,6 +52,7 @@ export function MessageInput({
             ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
             : 'bg-primary-600 text-white hover:bg-primary-700'
         }`}
+        title={!value.trim() ? '검색어를 입력해주세요' : '메시지 전송'}
       >
         <PaperAirplaneIcon className="h-5 w-5" />
       </button>
