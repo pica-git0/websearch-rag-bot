@@ -18,4 +18,4 @@ RUN npm run build
 EXPOSE 4000
 
 # 애플리케이션 실행
-CMD ["npm", "run", "start"]
+CMD ["node", "dist/main.js"]
