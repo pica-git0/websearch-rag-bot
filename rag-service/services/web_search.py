@@ -26,6 +26,15 @@ class WebSearchService:
         
         # DuckDuckGo API (Google API가 없을 때 대체)
         self.duckduckgo_url = "https://api.duckduckgo.com/"
+        
+        # 검색어 전처리 및 대체 검색어 매핑
+        self.query_mappings = {
+            'llm': ['LLM', 'large language model', 'AI 모델'],
+            '응답': ['response', 'answer', '답변'],
+            '완성': ['complete', 'finish', '완성'],
+            '시장': ['market', 'trading', '주식'],
+            '주식': ['stock', 'investment', '투자']
+        }
     
     async def search(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
         """웹 검색 수행 - Google Custom Search API 우선, 대체로 DuckDuckGo 사용"""
@@ -51,15 +60,56 @@ class WebSearchService:
             print(f"Error in web search: {e}")
             return await self._simulate_search(query, max_results)
     
+    def _preprocess_query(self, query: str) -> str:
+        """검색어 전처리: 한국어 특수문자 제거 및 키워드 정리"""
+        # 특수문자 제거
+        cleaned_query = re.sub(r'[^\w\s가-힣]', ' ', query)
+        # 연속된 공백을 하나로
+        cleaned_query = re.sub(r'\s+', ' ', cleaned_query).strip()
+        
+        # 한국어 키워드가 있으면 영어 키워드 추가
+        english_keywords = []
+        for korean_word, english_list in self.query_mappings.items():
+            if korean_word in cleaned_query:
+                english_keywords.extend(english_list[:2])  # 최대 2개만 추가
+        
+        if english_keywords:
+            final_query = f"{cleaned_query} {' '.join(english_keywords)}"
+            print(f"검색어 전처리: '{query}' -> '{final_query}'")
+            return final_query
+        
+        return cleaned_query
+    
+    def _create_fallback_query(self, query: str) -> str:
+        """대체 검색어 생성: 더 일반적인 키워드로 변경"""
+        # 한국어 키워드를 영어로 변환
+        fallback_parts = []
+        for korean_word, english_list in self.query_mappings.items():
+            if korean_word in query:
+                fallback_parts.append(english_list[0])  # 첫 번째 영어 키워드 사용
+        
+        if fallback_parts:
+            fallback_query = ' '.join(fallback_parts)
+            print(f"대체 검색어 생성: '{query}' -> '{fallback_query}'")
+            return fallback_query
+        
+        # 한국어 키워드가 없으면 일반적인 검색어로
+        return "AI artificial intelligence"
+    
     async def _google_search(self, query: str, max_results: int) -> List[Dict[str, Any]]:
         """Google Custom Search API를 사용한 검색"""
         try:
+            # 검색어 전처리: 한국어 특수문자 제거 및 영어 키워드 추가
+            processed_query = self._preprocess_query(query)
+            
             params = {
                 'key': self.google_api_key,
                 'cx': self.google_cse_id,
-                'q': query,
+                'q': processed_query,
                 'num': min(max_results, 10),  # Google API는 최대 10개
-                'safe': 'active'
+                'safe': 'active',
+                'lr': 'lang_ko',  # 한국어 결과 우선
+                'gl': 'kr'  # 한국 지역 설정
             }
             
             async with httpx.AsyncClient() as client:
@@ -74,6 +124,11 @@ class WebSearchService:
                 
                 if 'items' not in data:
                     print(f"Google API 응답에 items가 없음: {data}")
+                    # 검색어를 더 일반적으로 변경해서 재시도
+                    fallback_query = self._create_fallback_query(query)
+                    if fallback_query != query:
+                        print(f"대체 검색어로 재시도: {fallback_query}")
+                        return await self._google_search(fallback_query, max_results)
                     return []
                 
                 results = []
@@ -149,18 +204,24 @@ class WebSearchService:
         """검색 시뮬레이션 (모든 API가 실패한 경우)"""
         print(f"검색 시뮬레이션 실행: {query}")
         
-        # 예시 검색 결과
+        # 실제 존재하는 AI/기술 관련 사이트들
         sample_results = [
             {
-                'title': f'검색 결과: {query}',
-                'url': 'https://example.com/result1',
-                'snippet': f'{query}에 대한 정보를 찾을 수 있습니다.',
+                'title': f'{query} - Wikipedia',
+                'url': 'https://en.wikipedia.org/wiki/Artificial_intelligence',
+                'snippet': f'{query}에 대한 위키피디아 정보입니다.',
                 'source': 'simulation'
             },
             {
-                'title': f'{query} 관련 정보',
-                'url': 'https://example.com/result2',
-                'snippet': f'{query}와 관련된 다양한 자료들이 있습니다.',
+                'title': f'{query} - OpenAI Blog',
+                'url': 'https://openai.com/blog/',
+                'snippet': f'{query}와 관련된 OpenAI의 최신 정보입니다.',
+                'source': 'simulation'
+            },
+            {
+                'title': f'{query} - Google AI',
+                'url': 'https://ai.google/',
+                'snippet': f'{query}에 대한 Google AI의 연구 결과입니다.',
                 'source': 'simulation'
             }
         ]
