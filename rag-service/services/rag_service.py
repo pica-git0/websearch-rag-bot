@@ -40,6 +40,9 @@ class RAGService:
             chunk_overlap=200,
             length_function=len,
         )
+        
+        # 대화별 벡터 스토어 캐시
+        self.conversation_vector_stores = {}
     
     def _create_fallback_llm(self):
         """대체 LLM 생성 (OpenAI API 키가 없을 경우)"""
@@ -50,8 +53,48 @@ class RAGService:
         
         return FallbackLLM()
     
+    def _get_conversation_collection_name(self, conversation_id: str) -> str:
+        """대화별 콜렉션 이름 생성"""
+        return f"conversation_{conversation_id.replace('-', '_')}"
+    
+    async def _ensure_conversation_collection(self, conversation_id: str) -> Qdrant:
+        """대화별 콜렉션이 존재하는지 확인하고 없으면 생성"""
+        collection_name = self._get_conversation_collection_name(conversation_id)
+        
+        if collection_name not in self.conversation_vector_stores:
+            try:
+                # 기존 콜렉션이 있는지 확인
+                collections = self.vector_store.client.get_collections()
+                collection_exists = any(col.name == collection_name for col in collections.collections)
+                
+                if collection_exists:
+                    print(f"기존 콜렉션 사용: {collection_name}")
+                else:
+                    # 콜렉션이 없으면 생성
+                    print(f"새 콜렉션 생성: {collection_name}")
+                    self.vector_store.client.create_collection(
+                        collection_name,
+                        vectors_config={
+                            "size": 384,
+                            "distance": "Cosine"
+                        }
+                    )
+            except Exception as e:
+                print(f"콜렉션 확인/생성 오류: {e}")
+                # 오류 발생 시 기본 콜렉션 사용
+                return self.vector_store
+            
+            # 대화별 벡터 스토어 생성
+            self.conversation_vector_stores[collection_name] = Qdrant(
+                client=self.vector_store.client,
+                collection_name=collection_name,
+                embeddings=OpenAIEmbeddings() if self.openai_api_key else None
+            )
+        
+        return self.conversation_vector_stores[collection_name]
+    
     async def chat(self, message: str, conversation_id: str = None, use_web_search: bool = True) -> Tuple[str, List[str], str]:
-        """챗봇 대화 처리 - 웹 검색 → Qdrant 저장 → Retrieval → LLM 응답"""
+        """챗봇 대화 처리 - 대화별 콜렉션에 저장"""
         try:
             # 대화 ID 생성
             if not conversation_id:
@@ -66,13 +109,16 @@ class RAGService:
             
             memory = self.conversation_memories[conversation_id]
             
+            # 대화별 콜렉션 확인/생성
+            conversation_vector_store = await self._ensure_conversation_collection(conversation_id)
+            
             # 1단계: 웹 검색 수행 (필요한 경우)
             sources = []
             if use_web_search:
                 print(f"웹 검색 수행 중: {message}")
                 search_results = await self.web_search.search(message, max_results=5)
                 
-                # 2단계: 검색 결과를 Qdrant에 저장
+                # 2단계: 검색 결과를 대화별 콜렉션에 저장
                 for result in search_results:
                     if result.get('url'):
                         try:
@@ -82,7 +128,7 @@ class RAGService:
                                 # 텍스트 분할
                                 documents = self.text_splitter.split_text(content['content'])
                                 
-                                # 벡터 스토어에 추가
+                                # 벡터 스토어에 추가 (대화별 콜렉션)
                                 doc_objects = []
                                 for i, doc_text in enumerate(documents):
                                     doc_objects.append({
@@ -93,21 +139,27 @@ class RAGService:
                                             'chunk_index': i,
                                             'total_chunks': len(documents),
                                             'source_url': result['url'],
-                                            'search_query': message
+                                            'search_query': message,
+                                            'conversation_id': conversation_id,
+                                            'timestamp': asyncio.get_event_loop().time()
                                         }
                                     })
                                 
-                                # 벡터 스토어에 저장
-                                self.vector_store.add_documents(doc_objects)
+                                # 대화별 콜렉션에 저장
+                                conversation_vector_store.add_documents(doc_objects)
                                 sources.append(result['url'])
-                                print(f"URL 인덱싱 완료: {result['url']}")
+                                print(f"URL 인덱싱 완료: {result['url']} -> {self._get_conversation_collection_name(conversation_id)}")
                         except Exception as e:
                             print(f"URL 인덱싱 실패 {result['url']}: {e}")
                             continue
             
-            # 3단계: Qdrant에서 유사한 문서 검색 (Retrieval)
+            # 3단계: 대화별 콜렉션에서 유사한 문서 검색 (Retrieval)
             print(f"벡터 검색 수행 중: {message}")
-            vector_results = self.vector_store.search(message, top_k=5)
+            try:
+                vector_results = conversation_vector_store.similarity_search(message, k=5)
+            except Exception as e:
+                print(f"벡터 검색 실패: {e}")
+                vector_results = []
             
             # 4단계: 컨텍스트 생성
             context_docs = []
@@ -182,9 +234,15 @@ class RAGService:
         
         return prompt
     
-    async def index_urls(self, urls: List[str]) -> int:
-        """URL들을 인덱싱"""
+    async def index_urls(self, urls: List[str], conversation_id: str = None) -> int:
+        """URL들을 대화별 콜렉션에 인덱싱"""
         try:
+            if not conversation_id:
+                conversation_id = str(uuid.uuid4())
+            
+            # 대화별 콜렉션 확인/생성
+            conversation_vector_store = await self._ensure_conversation_collection(conversation_id)
+            
             indexed_count = 0
             
             for url in urls:
@@ -205,12 +263,14 @@ class RAGService:
                             'metadata': {
                                 'chunk_index': i,
                                 'total_chunks': len(documents),
-                                'source_url': url
+                                'source_url': url,
+                                'conversation_id': conversation_id,
+                                'timestamp': asyncio.get_event_loop().time()
                             }
                         })
                     
-                    # 벡터 스토어에 저장
-                    self.vector_store.add_documents(doc_objects)
+                    # 대화별 콜렉션에 저장
+                    conversation_vector_store.add_documents(doc_objects)
                     indexed_count += 1
             
             return indexed_count
@@ -218,6 +278,44 @@ class RAGService:
         except Exception as e:
             print(f"Error indexing URLs: {e}")
             return 0
+    
+    async def get_conversation_collections(self) -> List[str]:
+        """모든 대화 콜렉션 목록 조회"""
+        try:
+            collections = await self.vector_store.client.get_collections()
+            conversation_collections = []
+            
+            for collection in collections.collections:
+                if collection.name.startswith('conversation_'):
+                    conversation_collections.append(collection.name)
+            
+            return conversation_collections
+        except Exception as e:
+            print(f"Error getting conversation collections: {e}")
+            return []
+    
+    async def delete_conversation_collection(self, conversation_id: str) -> bool:
+        """대화별 콜렉션 삭제"""
+        try:
+            collection_name = self._get_conversation_collection_name(conversation_id)
+            
+            # 콜렉션 삭제
+            await self.vector_store.client.delete_collection(collection_name)
+            
+            # 캐시에서 제거
+            if collection_name in self.conversation_vector_stores:
+                del self.conversation_vector_stores[collection_name]
+            
+            # 대화 메모리 제거
+            if conversation_id in self.conversation_memories:
+                del self.conversation_memories[conversation_id]
+            
+            print(f"대화 콜렉션 삭제 완료: {collection_name}")
+            return True
+            
+        except Exception as e:
+            print(f"Error deleting conversation collection: {e}")
+            return False
     
     def get_conversation_history(self, conversation_id: str) -> List[Dict[str, str]]:
         """대화 히스토리 조회"""
@@ -238,7 +336,7 @@ class RAGService:
         return []
     
     def clear_conversation(self, conversation_id: str):
-        """대화 히스토리 삭제"""
+        """대화 히스토리 삭제 (메모리만)"""
         if conversation_id in self.conversation_memories:
             del self.conversation_memories[conversation_id]
     
