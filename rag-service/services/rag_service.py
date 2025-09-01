@@ -135,11 +135,11 @@ class RAGService:
                                 # 벡터 스토어에 추가 (대화별 콜렉션)
                                 doc_objects = []
                                 for i, doc_text in enumerate(documents):
-                                    doc_objects.append({
-                                        'content': doc_text,
-                                        'url': result['url'],
-                                        'title': content.get('title', ''),
-                                        'metadata': {
+                                    doc_objects.append(Document(
+                                        page_content=doc_text,
+                                        metadata={
+                                            'url': result['url'],
+                                            'title': content.get('title', ''),
                                             'chunk_index': i,
                                             'total_chunks': len(documents),
                                             'source_url': result['url'],
@@ -147,7 +147,7 @@ class RAGService:
                                             'conversation_id': conversation_id,
                                             'timestamp': asyncio.get_event_loop().time()
                                         }
-                                    })
+                                    ))
                                 
                                 # 대화별 콜렉션에 저장
                                 conversation_vector_store.add_documents(doc_objects)
@@ -168,13 +168,18 @@ class RAGService:
             # 4단계: 컨텍스트 생성
             context_docs = []
             for result in vector_results:
-                if result.get('content'):
+                if hasattr(result, 'page_content') and result.page_content:
                     context_docs.append(result)
-                    if result.get('url') and result.get('url') not in sources:
-                        sources.append(result.get('url'))
+                    if hasattr(result, 'metadata') and result.metadata.get('url') and result.metadata.get('url') not in sources:
+                        sources.append(result.metadata.get('url'))
             
             context = self._create_context(context_docs)
             print(f"검색된 문서 수: {len(context_docs)}")
+            
+            # 검색 결과가 없을 때 기본 정보 제공
+            if not context_docs and not sources:
+                print("검색 결과가 없어 기본 AI 정보를 제공합니다.")
+                context = self._get_default_ai_context(message)
             
             # 5단계: 프롬프트 생성 및 LLM 응답
             prompt = self._create_prompt(message, context)
@@ -200,16 +205,16 @@ class RAGService:
             print(f"Error in chat: {e}")
             return f"죄송합니다. 오류가 발생했습니다: {str(e)}", [], conversation_id or str(uuid.uuid4())
     
-    def _create_context(self, documents: List[Dict[str, Any]]) -> str:
+    def _create_context(self, documents: List[Document]) -> str:
         """문서들로부터 컨텍스트 생성"""
         if not documents:
             return ""
         
         context_parts = []
         for doc in documents:
-            content = doc.get('content', '')
-            title = doc.get('title', '')
-            url = doc.get('url', '')
+            content = doc.page_content
+            title = doc.metadata.get('title', '')
+            url = doc.metadata.get('url', '')
             
             if content:
                 context_part = f"제목: {title}\nURL: {url}\n내용: {content[:800]}...\n"
@@ -238,6 +243,51 @@ class RAGService:
         
         return prompt
     
+    def _get_default_ai_context(self, message: str) -> str:
+        """검색 결과가 없을 때 기본 AI 정보 제공"""
+        # 메시지에 포함된 키워드에 따라 기본 정보 제공
+        if 'llm' in message.lower() or 'ai' in message.lower():
+            return """LLM (Large Language Model)은 대규모 텍스트 데이터로 훈련된 인공지능 모델입니다.
+
+주요 특징:
+- 자연어 이해 및 생성 능력
+- 대화형 인터페이스 지원
+- 다양한 작업 수행 가능 (번역, 요약, 코드 생성 등)
+
+대표적인 LLM:
+- GPT (OpenAI)
+- Claude (Anthropic)
+- Gemini (Google)
+- LLaMA (Meta)
+
+LLM은 현재 AI 분야에서 가장 활발하게 연구되고 있는 기술 중 하나입니다."""
+        
+        elif '주식' in message or '시장' in message:
+            return """주식 시장은 기업의 주식을 거래하는 금융 시장입니다.
+
+주요 특징:
+- 기업 가치 평가의 장
+- 투자자들의 자금 운용 공간
+- 경제 상황의 지표 역할
+
+투자 시 고려사항:
+- 기업 재무상태 분석
+- 시장 동향 파악
+- 리스크 관리
+
+주식 투자는 장기적 관점에서 접근하는 것이 중요합니다."""
+        
+        else:
+            return """인공지능(AI)은 인간의 지능을 모방하여 학습하고 추론하는 기술입니다.
+
+AI의 주요 분야:
+- 머신러닝: 데이터로부터 패턴 학습
+- 딥러닝: 신경망을 이용한 복잡한 패턴 인식
+- 자연어처리: 인간 언어 이해 및 생성
+- 컴퓨터 비전: 이미지 및 영상 인식
+
+AI는 현재 다양한 분야에서 활용되고 있으며, 지속적으로 발전하고 있습니다."""
+    
     async def index_urls(self, urls: List[str], conversation_id: str = None) -> int:
         """URL들을 대화별 콜렉션에 인덱싱"""
         try:
@@ -260,18 +310,18 @@ class RAGService:
                     # 벡터 스토어에 추가
                     doc_objects = []
                     for i, doc_text in enumerate(documents):
-                        doc_objects.append({
-                            'content': doc_text,
-                            'url': url,
-                            'title': content.get('title', ''),
-                            'metadata': {
+                        doc_objects.append(Document(
+                            page_content=doc_text,
+                            metadata={
+                                'url': url,
+                                'title': content.get('title', ''),
                                 'chunk_index': i,
                                 'total_chunks': len(documents),
                                 'source_url': url,
                                 'conversation_id': conversation_id,
                                 'timestamp': asyncio.get_event_loop().time()
                             }
-                        })
+                        ))
                     
                     # 대화별 콜렉션에 저장
                     conversation_vector_store.add_documents(doc_objects)
