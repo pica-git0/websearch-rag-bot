@@ -11,8 +11,8 @@ interface Message {
   id: string
   content: string
   role: 'user' | 'assistant'
-  sources?: string[]
   createdAt: string
+  sources?: string[]
 }
 
 interface ChatInterfaceProps {
@@ -45,7 +45,6 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
   // 메시지를 로컬 스토리지에 저장
   const saveMessages = (conversationId: string, messages: Message[]) => {
     localStorage.setItem(`messages_${conversationId}`, JSON.stringify(messages))
-    setMessages(messages)
   }
 
   const scrollToBottom = () => {
@@ -57,90 +56,58 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
   }, [messages])
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || !selectedConversationId || isLoading) return
+    if (!inputValue.trim() || !selectedConversationId) return
 
-    setIsLoading(true)
-    
-    // 사용자 메시지 추가
     const userMessage: Message = {
-      id: `msg_${Date.now()}_user`,
+      id: Date.now().toString(),
       content: inputValue.trim(),
       role: 'user',
       createdAt: new Date().toISOString(),
     }
-    
+
+    // 사용자 메시지를 즉시 표시
     const updatedMessages = [...messages, userMessage]
-    saveMessages(selectedConversationId, updatedMessages)
-    
+    setMessages(updatedMessages)
+    setInputValue('')
+    setIsLoading(true)
+
     try {
-      // 백엔드의 searchWeb 리졸버를 사용하여 웹 검색 수행
-      const { data: searchData } = await searchWeb({
+      // 백엔드의 sendMessage 뮤테이션을 사용하여 RAG 서비스와 통신
+      const { data } = await sendMessage({
         variables: {
-          query: inputValue.trim(),
-          maxResults: 5
+          conversationId: selectedConversationId,
+          content: inputValue.trim()
         }
       })
-      
-      // 검색 결과를 RAG 서비스에 전송
-      const response = await fetch('http://localhost:8000/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: inputValue.trim(),
-          conversation_id: selectedConversationId,
-          use_web_search: true,
-          search_results: searchData?.searchWeb || []
-        }),
-      })
-      
-      if (response.ok) {
-        const data = await response.json()
-        
-        // AI 응답 추가
+
+      if (data?.sendMessage) {
         const aiMessage: Message = {
-          id: `msg_${Date.now()}_ai`,
-          content: data.response,
+          id: data.sendMessage.id,
+          content: data.sendMessage.content,
           role: 'assistant',
-          sources: data.sources,
-          createdAt: new Date().toISOString(),
+          createdAt: data.sendMessage.createdAt || new Date().toISOString(),
+          sources: data.sendMessage.sources || []
         }
-        
+
         const finalMessages = [...updatedMessages, aiMessage]
-        saveMessages(selectedConversationId, finalMessages)
-        
-        // 백엔드에 메시지 저장
-        try {
-          await sendMessage({
-            variables: {
-              conversationId: selectedConversationId,
-              content: inputValue.trim()
-            }
-          })
-        } catch (error) {
-          console.error('Error saving message to backend:', error)
-        }
-      } else {
-        throw new Error('Failed to get response from RAG service')
+        setMessages(finalMessages)
       }
     } catch (error) {
       console.error('Error sending message:', error)
       
-      // 에러 메시지 추가
+      // 에러 메시지 표시
       const errorMessage: Message = {
-        id: `msg_${Date.now()}_error`,
-        content: '죄송합니다. 서비스에 일시적인 문제가 발생했습니다.',
+        id: Date.now().toString(),
+        content: '죄송합니다. 메시지 전송 중 오류가 발생했습니다.',
         role: 'assistant',
         createdAt: new Date().toISOString(),
       }
-      
+
       const finalMessages = [...updatedMessages, errorMessage]
-      saveMessages(selectedConversationId, finalMessages)
+      setMessages(finalMessages)
+    } finally {
+      setIsLoading(false)
     }
-    
-    setIsLoading(false)
-    setInputValue('')
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -196,14 +163,12 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
 
       {/* 메시지 입력 */}
       <div className="border-t border-gray-200 p-4">
-        <MessageInput
-          value={inputValue}
-          onChange={setInputValue}
-          onSend={handleSendMessage}
-          onKeyPress={handleKeyPress}
-          isLoading={isLoading}
-          disabled={!selectedConversationId}
-        />
+                 <MessageInput
+           value={inputValue}
+           onChange={setInputValue}
+           onSend={handleSendMessage}
+           disabled={!selectedConversationId}
+         />
       </div>
     </div>
   )

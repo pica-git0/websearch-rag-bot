@@ -50,8 +50,8 @@ class RAGService:
         
         return FallbackLLM()
     
-    async def chat(self, message: str, conversation_id: str = None, use_web_search: bool = True, search_results: List[str] = None) -> Tuple[str, List[str], str]:
-        """챗봇 대화 처리"""
+    async def chat(self, message: str, conversation_id: str = None, use_web_search: bool = True) -> Tuple[str, List[str], str]:
+        """챗봇 대화 처리 - 웹 검색 → Qdrant 저장 → Retrieval → LLM 응답"""
         try:
             # 대화 ID 생성
             if not conversation_id:
@@ -66,47 +66,64 @@ class RAGService:
             
             memory = self.conversation_memories[conversation_id]
             
-            # 웹 검색 수행 (필요한 경우)
-            context_docs = []
+            # 1단계: 웹 검색 수행 (필요한 경우)
             sources = []
-            
             if use_web_search:
-                if search_results:
-                    # 백엔드로부터 받은 검색 결과 사용
-                    for url in search_results:
-                        if url:
-                            # URL에서 콘텐츠 추출
-                            content = await self.web_search.fetch_url_content(url)
-                            if content.get('content'):
-                                context_docs.append(content)
-                                sources.append(url)
-                else:
-                    # 백엔드 검색 결과가 없으면 직접 웹 검색 수행
-                    search_results = await self.web_search.search(message, max_results=3)
-                    
-                    for result in search_results:
-                        if result.get('url'):
+                print(f"웹 검색 수행 중: {message}")
+                search_results = await self.web_search.search(message, max_results=5)
+                
+                # 2단계: 검색 결과를 Qdrant에 저장
+                for result in search_results:
+                    if result.get('url'):
+                        try:
                             # URL에서 콘텐츠 추출
                             content = await self.web_search.fetch_url_content(result['url'])
                             if content.get('content'):
-                                context_docs.append(content)
+                                # 텍스트 분할
+                                documents = self.text_splitter.split_text(content['content'])
+                                
+                                # 벡터 스토어에 추가
+                                doc_objects = []
+                                for i, doc_text in enumerate(documents):
+                                    doc_objects.append({
+                                        'content': doc_text,
+                                        'url': result['url'],
+                                        'title': content.get('title', ''),
+                                        'metadata': {
+                                            'chunk_index': i,
+                                            'total_chunks': len(documents),
+                                            'source_url': result['url'],
+                                            'search_query': message
+                                        }
+                                    })
+                                
+                                # 벡터 스토어에 저장
+                                self.vector_store.add_documents(doc_objects)
                                 sources.append(result['url'])
+                                print(f"URL 인덱싱 완료: {result['url']}")
+                        except Exception as e:
+                            print(f"URL 인덱싱 실패 {result['url']}: {e}")
+                            continue
             
-            # 벡터 스토어에서 유사한 문서 검색
-            vector_results = self.vector_store.search(message, top_k=3)
+            # 3단계: Qdrant에서 유사한 문서 검색 (Retrieval)
+            print(f"벡터 검색 수행 중: {message}")
+            vector_results = self.vector_store.search(message, top_k=5)
+            
+            # 4단계: 컨텍스트 생성
+            context_docs = []
             for result in vector_results:
                 if result.get('content'):
                     context_docs.append(result)
-                    if result.get('url'):
-                        sources.append(result['url'])
+                    if result.get('url') and result.get('url') not in sources:
+                        sources.append(result.get('url'))
             
-            # 컨텍스트 생성
             context = self._create_context(context_docs)
+            print(f"검색된 문서 수: {len(context_docs)}")
             
-            # 프롬프트 생성
+            # 5단계: 프롬프트 생성 및 LLM 응답
             prompt = self._create_prompt(message, context)
             
-            # LLM 응답 생성
+            print("LLM 응답 생성 중...")
             if hasattr(self.llm, 'invoke'):
                 # 최신 LangChain API
                 response = self.llm.invoke(prompt)
@@ -120,6 +137,7 @@ class RAGService:
             memory.chat_memory.add_user_message(message)
             memory.chat_memory.add_ai_message(response)
             
+            print(f"응답 생성 완료. 소스 수: {len(sources)}")
             return response, sources, conversation_id
             
         except Exception as e:
@@ -138,7 +156,7 @@ class RAGService:
             url = doc.get('url', '')
             
             if content:
-                context_part = f"제목: {title}\nURL: {url}\n내용: {content[:500]}...\n"
+                context_part = f"제목: {title}\nURL: {url}\n내용: {content[:800]}...\n"
                 context_parts.append(context_part)
         
         return "\n".join(context_parts)
@@ -152,7 +170,11 @@ class RAGService:
 
 사용자 질문: {message}
 
-위의 정보를 바탕으로 사용자의 질문에 답변해주세요. 정보가 충분하지 않다면 그 점을 명시하고, 가능한 한 도움이 되는 답변을 제공해주세요. 한국어로 답변해주세요."""
+위의 정보를 바탕으로 사용자의 질문에 답변해주세요. 
+- 제공된 정보를 활용하여 정확하고 도움이 되는 답변을 제공하세요
+- 정보가 충분하지 않다면 그 점을 명시하고, 가능한 한 도움이 되는 답변을 제공해주세요
+- 한국어로 답변해주세요
+- 답변 후에는 참고한 정보의 출처를 간단히 언급해주세요"""
         else:
             prompt = f"""사용자 질문: {message}
 
