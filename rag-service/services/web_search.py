@@ -7,6 +7,7 @@ import re
 from urllib.parse import urljoin, urlparse
 import asyncio
 import json
+import openai
 
 from dotenv import load_dotenv
 
@@ -26,6 +27,11 @@ class WebSearchService:
         
         # DuckDuckGo API (Google API가 없을 때 대체)
         self.duckduckgo_url = "https://api.duckduckgo.com/"
+        
+        # OpenAI API 설정
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        if self.openai_api_key:
+            openai.api_key = self.openai_api_key
         
         # 검색어 전처리 및 대체 검색어 매핑
         self.query_mappings = {
@@ -80,9 +86,54 @@ class WebSearchService:
         
         return cleaned_query
     
-    def _create_fallback_query(self, query: str) -> str:
-        """대체 검색어 생성: 더 일반적인 키워드로 변경"""
-        # 한국어 키워드를 영어로 변환
+    async def _create_fallback_query(self, query: str) -> str:
+        """대체 검색어 생성: GPT API를 사용하여 더 일반적인 키워드로 변경"""
+        try:
+            # OpenAI API가 설정되어 있으면 GPT를 사용
+            if self.openai_api_key:
+                print(f"GPT API를 사용하여 대체 검색어 생성: {query}")
+                
+                # GPT에게 검색어를 일반적인 키워드로 변환하도록 요청
+                prompt = f"""
+                다음 검색어를 웹 검색에 적합한 일반적인 키워드로 변환해주세요.
+                검색어: "{query}"
+                
+                요구사항:
+                1. 원래 의미를 유지하면서 더 일반적이고 검색하기 쉬운 키워드로 변환
+                2. 한국어와 영어 키워드를 모두 포함 (한국어 우선)
+                3. 3-5개의 핵심 키워드만 제공
+                4. 검색 엔진에서 잘 찾을 수 있는 일반적인 용어 사용
+                5. 전문 용어는 쉬운 동의어로 변환
+                
+                예시:
+                - "고급 AI 모델" → "AI 모델 인공지능 머신러닝"
+                - "복잡한 알고리즘" → "알고리즘 프로그래밍 코딩"
+                
+                변환된 키워드만 출력하세요 (설명 없이):
+                """
+                
+                response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "당신은 검색어 최적화 전문가입니다. 검색어를 웹 검색에 적합한 일반적인 키워드로 변환합니다."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=100,
+                    temperature=0.3
+                )
+                
+                if response.choices and response.choices[0].message:
+                    fallback_query = response.choices[0].message.content.strip()
+                    print(f"GPT 대체 검색어 생성: '{query}' -> '{fallback_query}'")
+                    return fallback_query
+                else:
+                    print("GPT API 응답이 비어있습니다. 기본 방식으로 대체 검색어 생성")
+            
+        except Exception as e:
+            print(f"GPT API 오류: {e}. 기본 방식으로 대체 검색어 생성")
+        
+        # GPT API가 없거나 실패한 경우 기본 방식 사용
+        print("기본 방식으로 대체 검색어 생성")
         fallback_parts = []
         for korean_word, english_list in self.query_mappings.items():
             if korean_word in query:
@@ -90,7 +141,7 @@ class WebSearchService:
         
         if fallback_parts:
             fallback_query = ' '.join(fallback_parts)
-            print(f"대체 검색어 생성: '{query}' -> '{fallback_query}'")
+            print(f"기본 대체 검색어 생성: '{query}' -> '{fallback_query}'")
             return fallback_query
         
         # 한국어 키워드가 없으면 일반적인 검색어로
@@ -125,7 +176,7 @@ class WebSearchService:
                 if 'items' not in data:
                     print(f"Google API 응답에 items가 없음: {data}")
                     # 검색어를 더 일반적으로 변경해서 재시도
-                    fallback_query = self._create_fallback_query(query)
+                    fallback_query = await self._create_fallback_query(query)
                     if fallback_query != query:
                         print(f"대체 검색어로 재시도: {fallback_query}")
                         return await self._google_search(fallback_query, max_results)
