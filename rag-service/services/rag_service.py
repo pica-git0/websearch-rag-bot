@@ -72,10 +72,14 @@ class RAGService:
                 else:
                     # 콜렉션이 없으면 생성
                     print(f"새 콜렉션 생성: {collection_name}")
+                    
+                    # OpenAI embeddings 사용 시 1536차원, 그렇지 않으면 384차원
+                    vector_size = 1536 if self.openai_api_key else 384
+                    
                     self.vector_store.client.create_collection(
                         collection_name,
                         vectors_config={
-                            "size": 384,
+                            "size": vector_size,
                             "distance": "Cosine"
                         }
                     )
