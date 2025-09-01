@@ -97,8 +97,7 @@ async def chat(request: ChatRequest):
         response, sources, conversation_id = await rag_service.chat(
             request.message, 
             request.conversation_id,
-            request.use_web_search,
-            request.search_results
+            request.use_web_search
         )
         
         duration = time.time() - start_time
