@@ -2,8 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { PaperAirplaneIcon } from '@heroicons/react/24/outline'
+import { useMutation, useLazyQuery } from '@apollo/client'
 import { MessageList } from './MessageList'
 import { MessageInput } from './MessageInput'
+import { SEARCH_WEB, SEND_MESSAGE } from '../lib/graphql'
 
 interface Message {
   id: string
@@ -23,6 +25,10 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // GraphQL 뮤테이션과 쿼리
+  const [searchWeb] = useLazyQuery(SEARCH_WEB)
+  const [sendMessage] = useMutation(SEND_MESSAGE)
 
   // 선택된 대화가 변경될 때 메시지 로드
   useEffect(() => {
@@ -67,7 +73,15 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
     saveMessages(selectedConversationId, updatedMessages)
     
     try {
-      // RAG 서비스에 메시지 전송
+      // 백엔드의 searchWeb 리졸버를 사용하여 웹 검색 수행
+      const { data: searchData } = await searchWeb({
+        variables: {
+          query: inputValue.trim(),
+          maxResults: 5
+        }
+      })
+      
+      // 검색 결과를 RAG 서비스에 전송
       const response = await fetch('http://localhost:8000/chat', {
         method: 'POST',
         headers: {
@@ -77,6 +91,7 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
           message: inputValue.trim(),
           conversation_id: selectedConversationId,
           use_web_search: true,
+          search_results: searchData?.searchWeb || []
         }),
       })
       
@@ -94,6 +109,18 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
         
         const finalMessages = [...updatedMessages, aiMessage]
         saveMessages(selectedConversationId, finalMessages)
+        
+        // 백엔드에 메시지 저장
+        try {
+          await sendMessage({
+            variables: {
+              conversationId: selectedConversationId,
+              content: inputValue.trim()
+            }
+          })
+        } catch (error) {
+          console.error('Error saving message to backend:', error)
+        }
       } else {
         throw new Error('Failed to get response from RAG service')
       }

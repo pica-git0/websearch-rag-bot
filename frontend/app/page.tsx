@@ -7,7 +7,7 @@ import { Header } from '@/components/Header'
 
 export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
+  const [selectedConversationId, setSelectedConversationId] = useState<string | undefined>(undefined)
 
   return (
     <div className="h-screen flex overflow-hidden bg-gray-50">
