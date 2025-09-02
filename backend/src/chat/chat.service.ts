@@ -39,7 +39,7 @@ export class ChatService {
     });
   }
 
-  async sendMessage(conversationId: string, content: string, useWebSearch: boolean = true): Promise<{ message: Message; response: string; sources: string[]; contextInfo: any }> {
+  async sendMessage(conversationId: string, content: string, useWebSearch: boolean = true, useStructuredResponse: boolean = false): Promise<{ message: Message; response: string; sources: string[]; contextInfo: any }> {
     // 빈 메시지 체크
     if (!content || !content.trim()) {
       const errorMessage = this.messageRepository.create({
@@ -73,12 +73,17 @@ export class ChatService {
       const ragServiceUrl = this.configService.get('RAG_SERVICE_URL', 'http://localhost:8000');
       console.log('=== RAG Service 호출 시작 ===');
       console.log('RAG Service URL:', ragServiceUrl);
-      console.log('Request payload:', { message: content, conversation_id: conversationId, use_web_search: useWebSearch });
+      console.log('Request payload:', { message: content, conversation_id: conversationId, use_web_search: useWebSearch, use_structured_response: useStructuredResponse });
       
       try {
         console.log('RAG Service HTTP 요청 전송 중...');
+        
+        // 구조화된 답변 사용 여부에 따라 다른 엔드포인트 호출
+        const endpoint = useStructuredResponse ? '/chat/structured' : '/chat';
+        console.log(`사용할 엔드포인트: ${endpoint}`);
+        
         const response = await firstValueFrom(
-          this.httpService.post(`${ragServiceUrl}/chat`, {
+          this.httpService.post(`${ragServiceUrl}${endpoint}`, {
             message: content,
             conversation_id: conversationId,
             use_web_search: useWebSearch,
@@ -101,13 +106,21 @@ export class ChatService {
         console.log('Context Info value:', JSON.stringify(context_info, null, 2));
 
         // AI 응답 저장
+        console.log('=== AI 응답 저장 시작 ===');
+        console.log('저장할 sources:', sources);
+        console.log('저장할 sources 타입:', typeof sources);
+        console.log('저장할 sources 길이:', sources ? sources.length : 'null');
+        
         const assistantMessage = this.messageRepository.create({
           conversationId,
           content: aiResponse,
           role: 'assistant',
-          sources,
+          sources: sources || [],
         });
-        await this.messageRepository.save(assistantMessage);
+        
+        console.log('생성된 메시지 객체:', assistantMessage);
+        const savedMessage = await this.messageRepository.save(assistantMessage);
+        console.log('저장된 메시지:', savedMessage);
 
         // 대화 제목 업데이트 (첫 번째 메시지인 경우)
         const messageCount = await this.messageRepository.count({
@@ -120,7 +133,7 @@ export class ChatService {
         }
 
         return {
-          message: assistantMessage,
+          message: savedMessage,
           response: aiResponse,
           sources: sources || [],
           contextInfo: context_info || {

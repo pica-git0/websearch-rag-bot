@@ -9,6 +9,8 @@ interface MessageInputProps {
   disabled?: boolean
   useWebSearch?: boolean
   onWebSearchToggle?: (enabled: boolean) => void
+  useStructuredResponse?: boolean
+  onStructuredResponseToggle?: (enabled: boolean) => void
 }
 
 export function MessageInput({
@@ -18,6 +20,8 @@ export function MessageInput({
   disabled = false,
   useWebSearch = true,
   onWebSearchToggle,
+  useStructuredResponse = true,
+  onStructuredResponseToggle,
 }: MessageInputProps) {
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -53,6 +57,32 @@ export function MessageInput({
           <span
             className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
               useWebSearch ? 'translate-x-6' : 'translate-x-1'
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* 구조화된 답변 토글 */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          <svg className="h-4 w-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+          </svg>
+          <span className="text-sm text-gray-600">구조화된 답변</span>
+          <span className="text-xs text-gray-400">
+            {useStructuredResponse ? '(체계적 분석)' : '(일반 답변)'}
+          </span>
+        </div>
+        <button
+          onClick={() => onStructuredResponseToggle?.(!useStructuredResponse)}
+          disabled={disabled}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+            useStructuredResponse ? 'bg-green-600' : 'bg-gray-300'
+          } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              useStructuredResponse ? 'translate-x-6' : 'translate-x-1'
             }`}
           />
         </button>

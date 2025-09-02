@@ -53,7 +53,7 @@ export class Message {
   role: 'user' | 'assistant';
 
   @Field(() => [String], { nullable: true })
-  @Column({ type: 'json', nullable: true })
+  @Column({ type: 'json', nullable: true, default: [] })
   sources: string[];
 
   @Field(() => ContextInfo, { nullable: true })

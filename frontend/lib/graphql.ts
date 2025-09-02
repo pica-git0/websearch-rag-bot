@@ -20,8 +20,8 @@ export const CREATE_CONVERSATION = gql`
 
 // 메시지 전송 뮤테이션
 export const SEND_MESSAGE = gql`
-  mutation SendMessage($conversationId: String!, $content: String!, $useWebSearch: Boolean) {
-    sendMessage(conversationId: $conversationId, content: $content, useWebSearch: $useWebSearch) {
+  mutation SendMessage($conversationId: String!, $content: String!, $useWebSearch: Boolean, $useStructuredResponse: Boolean) {
+    sendMessage(conversationId: $conversationId, content: $content, useWebSearch: $useWebSearch, useStructuredResponse: $useStructuredResponse) {
       id
       content
       role

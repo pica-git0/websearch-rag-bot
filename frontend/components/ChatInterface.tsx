@@ -30,6 +30,7 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [useWebSearch, setUseWebSearch] = useState(true)
+  const [useStructuredResponse, setUseStructuredResponse] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // GraphQL 뮤테이션과 쿼리
@@ -90,7 +91,8 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
         variables: {
           conversationId: selectedConversationId,
           content: inputValue.trim(),
-          useWebSearch: useWebSearch
+          useWebSearch: useWebSearch,
+          useStructuredResponse: useStructuredResponse
         }
       })
 
@@ -152,6 +154,10 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
     setUseWebSearch(enabled)
   }
 
+  const handleStructuredResponseToggle = (enabled: boolean) => {
+    setUseStructuredResponse(enabled)
+  }
+
   if (!selectedConversationId) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -204,6 +210,8 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
         disabled={!selectedConversationId}
         useWebSearch={useWebSearch}
         onWebSearchToggle={handleWebSearchToggle}
+        useStructuredResponse={useStructuredResponse}
+        onStructuredResponseToggle={handleStructuredResponseToggle}
       />
     </div>
   )

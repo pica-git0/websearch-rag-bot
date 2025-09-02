@@ -43,8 +43,9 @@ export class ChatResolver {
     @Args('conversationId') conversationId: string,
     @Args('content') content: string,
     @Args('useWebSearch', { defaultValue: true }) useWebSearch: boolean,
+    @Args('useStructuredResponse', { defaultValue: false }) useStructuredResponse: boolean,
   ): Promise<any> {
-    const result = await this.chatService.sendMessage(conversationId, content, useWebSearch);
+    const result = await this.chatService.sendMessage(conversationId, content, useWebSearch, useStructuredResponse);
     
     // 실시간 업데이트를 위한 이벤트 발행
     pubSub.publish('messageAdded', {
