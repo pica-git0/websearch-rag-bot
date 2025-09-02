@@ -54,11 +54,21 @@ class RAGService:
         return FallbackLLM()
     
     def _get_conversation_collection_name(self, conversation_id: str) -> str:
-        """대화별 콜렉션 이름 생성"""
+        """대화별 단기기억 콜렉션 이름 생성"""
         return f"conversation_{conversation_id.replace('-', '_')}"
     
+    def _get_long_term_memory_collection_name(self, conversation_id: str) -> str:
+        """장기기억 콜렉션 이름 생성 (대화별 분리)
+        
+        각 대화마다 별도의 장기기억 콜렉션을 생성하여:
+        - 대화별로 독립적인 메모리 관리
+        - 다른 대화와의 정보 혼재 방지
+        - 대화별 컨텍스트 유지
+        """
+        return f"long_term_memory_{conversation_id.replace('-', '_')}"
+    
     async def _ensure_conversation_collection(self, conversation_id: str) -> Qdrant:
-        """대화별 콜렉션이 존재하는지 확인하고 없으면 생성"""
+        """대화별 단기기억 콜렉션이 존재하는지 확인하고 없으면 생성"""
         collection_name = self._get_conversation_collection_name(conversation_id)
         
         if collection_name not in self.conversation_vector_stores:
@@ -68,10 +78,10 @@ class RAGService:
                 collection_exists = any(col.name == collection_name for col in collections.collections)
                 
                 if collection_exists:
-                    print(f"기존 콜렉션 사용: {collection_name}")
+                    print(f"기존 단기기억 콜렉션 사용: {collection_name}")
                 else:
                     # 콜렉션이 없으면 생성
-                    print(f"새 콜렉션 생성: {collection_name}")
+                    print(f"새 단기기억 콜렉션 생성: {collection_name}")
                     
                     # OpenAI embeddings 사용 시 1536차원, 그렇지 않으면 384차원
                     vector_size = 1536 if self.openai_api_key else 384
@@ -84,11 +94,51 @@ class RAGService:
                         }
                     )
             except Exception as e:
-                print(f"콜렉션 확인/생성 오류: {e}")
+                print(f"단기기억 콜렉션 확인/생성 오류: {e}")
                 # 오류 발생 시 기본 콜렉션 사용
                 return self.vector_store
             
             # 대화별 벡터 스토어 생성
+            self.conversation_vector_stores[collection_name] = Qdrant(
+                client=self.vector_store.client,
+                collection_name=collection_name,
+                embeddings=OpenAIEmbeddings() if self.openai_api_key else None
+            )
+        
+        return self.conversation_vector_stores[collection_name]
+    
+    async def _ensure_long_term_memory_collection(self, conversation_id: str) -> Qdrant:
+        """장기기억 콜렉션이 존재하는지 확인하고 없으면 생성 (대화별 분리)"""
+        collection_name = self._get_long_term_memory_collection_name(conversation_id)
+        
+        if collection_name not in self.conversation_vector_stores:
+            try:
+                # 기존 콜렉션이 있는지 확인
+                collections = self.vector_store.client.get_collections()
+                collection_exists = any(col.name == collection_name for col in collections.collections)
+                
+                if collection_exists:
+                    print(f"기존 장기기억 콜렉션 사용: {collection_name}")
+                else:
+                    # 콜렉션이 없으면 생성
+                    print(f"새 장기기억 콜렉션 생성: {collection_name}")
+                    
+                    # OpenAI embeddings 사용 시 1536차원, 그렇지 않으면 384차원
+                    vector_size = 1536 if self.openai_api_key else 384
+                    
+                    self.vector_store.client.create_collection(
+                        collection_name,
+                        vectors_config={
+                            "size": vector_size,
+                            "distance": "Cosine"
+                        }
+                    )
+            except Exception as e:
+                print(f"장기기억 콜렉션 확인/생성 오류: {e}")
+                # 오류 발생 시 기본 콜렉션 사용
+                return self.vector_store
+            
+            # 장기기억 벡터 스토어 생성
             self.conversation_vector_stores[collection_name] = Qdrant(
                 client=self.vector_store.client,
                 collection_name=collection_name,
@@ -161,32 +211,66 @@ class RAGService:
                             print(f"URL 인덱싱 실패 {result['url']}: {e}")
                             continue
             
-            # 3단계: 대화별 콜렉션에서 유사한 문서 검색 (Retrieval)
-            print(f"벡터 검색 수행 중: {message}")
+            # 3단계: 단기기억 → 장기기억 → 웹검색 순으로 컨텍스트 수집
+            print(f"컨텍스트 수집 중: {message}")
+            
+            # 3-1: 단기기억 (현재 대화)에서 검색
+            short_term_context = []
             try:
-                vector_results = conversation_vector_store.similarity_search(message, k=5)
+                short_term_results = conversation_vector_store.similarity_search(message, k=3)
+                short_term_context = [result for result in short_term_results if hasattr(result, 'page_content') and result.page_content]
+                print(f"단기기억에서 {len(short_term_context)}개 문서 검색")
             except Exception as e:
-                print(f"벡터 검색 실패: {e}")
-                vector_results = []
+                print(f"단기기억 검색 실패: {e}")
             
-            # 4단계: 컨텍스트 생성
-            context_docs = []
-            for result in vector_results:
-                if hasattr(result, 'page_content') and result.page_content:
-                    context_docs.append(result)
-                    if hasattr(result, 'metadata') and result.metadata.get('url') and result.metadata.get('url') not in sources:
-                        sources.append(result.metadata.get('url'))
+            # 3-2: 장기기억 (대화별 히스토리)에서 검색
+            long_term_context = []
+            try:
+                long_term_vector_store = await self._ensure_long_term_memory_collection(conversation_id)
+                long_term_results = long_term_vector_store.similarity_search(message, k=3)
+                long_term_context = [result for result in long_term_results if hasattr(result, 'page_content') and result.page_content]
+                print(f"장기기억에서 {len(long_term_context)}개 문서 검색")
+            except Exception as e:
+                print(f"장기기억 검색 실패: {e}")
             
-            context = self._create_context(context_docs)
-            print(f"검색된 문서 수: {len(context_docs)}")
+            # 3-3: 웹검색 결과를 현재 대화에 저장 (이미 수행됨)
+            web_search_context = []
+            if sources:
+                web_search_context = [f"웹검색 결과: {len(sources)}개 URL에서 정보 수집됨"]
+                print(f"웹검색에서 {len(sources)}개 소스 수집")
+            
+            # 4단계: 통합 컨텍스트 생성 (우선순위: 단기기억 > 장기기억 > 웹검색)
+            all_context_docs = []
+            
+            # 단기기억 우선 (가장 관련성 높음)
+            for result in short_term_context:
+                all_context_docs.append(result)
+                if hasattr(result, 'metadata') and result.metadata.get('url') and result.metadata.get('url') not in sources:
+                    sources.append(result.metadata.get('url'))
+            
+            # 장기기억 추가 (중간 관련성)
+            for result in long_term_context:
+                all_context_docs.append(result)
+                if hasattr(result, 'metadata') and result.metadata.get('url') and result.metadata.get('url') not in sources:
+                    sources.append(result.metadata.get('url'))
+            
+            # 컨텍스트 생성
+            context = self._create_context(all_context_docs)
+            print(f"통합 컨텍스트: 단기기억 {len(short_term_context)}개, 장기기억 {len(long_term_context)}개, 웹검색 {len(web_search_context)}개")
             
             # 검색 결과가 없을 때 기본 정보 제공
-            if not context_docs and not sources:
+            if not all_context_docs and not sources:
                 print("검색 결과가 없어 기본 AI 정보를 제공합니다.")
                 context = self._get_default_ai_context(message)
             
             # 5단계: 프롬프트 생성 및 LLM 응답
-            prompt = self._create_prompt(message, context)
+            prompt = self._create_prompt(
+                message, 
+                context, 
+                short_term_count=len(short_term_context),
+                long_term_count=len(long_term_context),
+                web_search_count=len(sources)
+            )
             
             print("LLM 응답 생성 중...")
             if hasattr(self.llm, 'invoke'):
@@ -201,6 +285,9 @@ class RAGService:
             # 대화 메모리에 저장
             memory.chat_memory.add_user_message(message)
             memory.chat_memory.add_ai_message(response)
+            
+            # 6단계: 현재 대화를 장기기억에 저장
+            await self._save_to_long_term_memory(conversation_id, message, response, sources)
             
             print(f"응답 생성 완료. 소스 수: {len(sources)}")
             return response, sources, conversation_id
@@ -226,20 +313,36 @@ class RAGService:
         
         return "\n".join(context_parts)
     
-    def _create_prompt(self, message: str, context: str) -> str:
-        """프롬프트 생성"""
+    def _create_prompt(self, message: str, context: str, short_term_count: int = 0, long_term_count: int = 0, web_search_count: int = 0) -> str:
+        """프롬프트 생성 - 단기기억, 장기기억, 웹검색 컨텍스트 구분"""
         if context:
+            context_summary = f"""
+=== 컨텍스트 정보 ===
+- 단기기억 (현재 대화): {short_term_count}개 문서
+- 장기기억 (이전 대화 내용): {long_term_count}개 문서  
+- 웹검색 결과: {web_search_count}개 소스
+==================
+
+{context}"""
+            
             prompt = f"""다음은 사용자의 질문과 관련된 정보입니다:
 
-{context}
+{context_summary}
 
 사용자 질문: {message}
 
 위의 정보를 바탕으로 사용자의 질문에 답변해주세요. 
-- 제공된 정보를 활용하여 정확하고 도움이 되는 답변을 제공하세요
-- 정보가 충분하지 않다면 그 점을 명시하고, 가능한 한 도움이 되는 답변을 제공해주세요
-- 한국어로 답변해주세요
-- 답변 후에는 참고한 정보의 출처를 간단히 언급해주세요"""
+
+답변 지침:
+1. 단기기억(현재 대화)의 정보를 우선적으로 활용하세요
+2. 장기기억(이전 대화 내용)의 정보를 보조적으로 활용하세요
+3. 웹검색 결과를 통해 최신 정보를 보완하세요
+4. 모든 정보를 종합하여 일관성 있고 정확한 답변을 제공하세요
+5. 정보가 충분하지 않다면 그 점을 명시하고, 가능한 한 도움이 되는 답변을 제공해주세요
+6. 한국어로 답변해주세요
+7. 답변 후에는 참고한 정보의 출처를 간단히 언급해주세요
+
+답변:"""
         else:
             prompt = f"""사용자 질문: {message}
 
@@ -250,6 +353,43 @@ class RAGService:
     def _get_default_ai_context(self, message: str) -> str:
         """검색 결과가 없을 때 기본 AI 정보 제공"""
         return "검색어가 없습니다. 구체적인 질문이나 검색하고 싶은 내용을 입력해주세요."
+    
+    async def _save_to_long_term_memory(self, conversation_id: str, user_message: str, ai_response: str, sources: List[str]) -> None:
+        """현재 대화를 장기기억에 저장 (대화별 분리)"""
+        try:
+            long_term_vector_store = await self._ensure_long_term_memory_collection(conversation_id)
+            
+            # 대화 내용을 문서로 변환
+            conversation_text = f"사용자: {user_message}\n\nAI: {ai_response}"
+            if sources:
+                conversation_text += f"\n\n참고 소스: {', '.join(sources)}"
+            
+            # 텍스트 분할
+            documents = self.text_splitter.split_text(conversation_text)
+            
+            # 장기기억에 저장
+            doc_objects = []
+            for i, doc_text in enumerate(documents):
+                doc_objects.append(Document(
+                    page_content=doc_text,
+                    metadata={
+                        'conversation_id': conversation_id,
+                        'user_message': user_message,
+                        'ai_response': ai_response,
+                        'sources': sources,
+                        'chunk_index': i,
+                        'total_chunks': len(documents),
+                        'timestamp': asyncio.get_event_loop().time(),
+                        'memory_type': 'long_term'
+                    }
+                ))
+            
+            if doc_objects:
+                long_term_vector_store.add_documents(doc_objects)
+                print(f"장기기억에 저장 완료: 대화 {conversation_id} -> {len(doc_objects)}개 청크")
+            
+        except Exception as e:
+            print(f"장기기억 저장 실패: {e}")
     
     async def index_urls(self, urls: List[str], conversation_id: str = None) -> int:
         """URL들을 대화별 콜렉션에 인덱싱"""
