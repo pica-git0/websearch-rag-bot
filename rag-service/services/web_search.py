@@ -183,7 +183,8 @@ class WebSearchService:
                     return []
                 
                 results = []
-                for item in data['items']:
+                print(f"🔍 Google 검색 결과 URL들:")
+                for i, item in enumerate(data['items']):
                     result = {
                         'title': item.get('title', ''),
                         'url': item.get('link', ''),
@@ -191,8 +192,12 @@ class WebSearchService:
                         'source': 'google'
                     }
                     results.append(result)
+                    
+                    # URL을 콘솔에 출력 (개발 환경 모니터링용)
+                    print(f"  [{i+1}] {result['url']}")
+                    print(f"      제목: {result['title'][:80]}...")
                 
-                print(f"Google 검색 결과: {len(results)}개")
+                print(f"✅ Google 검색 완료: 총 {len(results)}개 결과")
                 return results[:max_results]
                 
         except Exception as e:
@@ -221,10 +226,11 @@ class WebSearchService:
                 data = response.json()
                 
                 results = []
+                print(f"🔍 DuckDuckGo 검색 결과 URL들:")
                 
                 # 관련 주제들 추가
                 if 'RelatedTopics' in data:
-                    for topic in data['RelatedTopics'][:max_results]:
+                    for i, topic in enumerate(data['RelatedTopics'][:max_results]):
                         if 'FirstURL' in topic and 'Text' in topic:
                             result = {
                                 'title': topic.get('Text', '')[:100],
@@ -233,6 +239,10 @@ class WebSearchService:
                                 'source': 'duckduckgo'
                             }
                             results.append(result)
+                            
+                            # URL을 콘솔에 출력 (개발 환경 모니터링용)
+                            print(f"  [{len(results)}] {result['url']}")
+                            print(f"      제목: {result['title'][:80]}...")
                 
                 # 추상 정보 추가
                 if 'Abstract' in data and data['Abstract']:
@@ -243,8 +253,13 @@ class WebSearchService:
                         'source': 'duckduckgo'
                     }
                     results.append(result)
+                    
+                    # URL을 콘솔에 출력 (개발 환경 모니터링용)
+                    if result['url']:
+                        print(f"  [{len(results)}] {result['url']}")
+                        print(f"      제목: {result['title'][:80]}...")
                 
-                print(f"DuckDuckGo 검색 결과: {len(results)}개")
+                print(f"✅ DuckDuckGo 검색 완료: 총 {len(results)}개 결과")
                 return results[:max_results]
                 
         except Exception as e:
@@ -253,7 +268,7 @@ class WebSearchService:
     
     async def _simulate_search(self, query: str, max_results: int) -> List[Dict[str, Any]]:
         """검색 시뮬레이션 (모든 API가 실패한 경우)"""
-        print(f"검색 시뮬레이션 실행: {query}")
+        print(f"🔍 검색 시뮬레이션 실행: {query}")
         
         # 실제 존재하는 AI/기술 관련 사이트들
         sample_results = [
@@ -277,6 +292,13 @@ class WebSearchService:
             }
         ]
         
+        # URL을 콘솔에 출력 (개발 환경 모니터링용)
+        print(f"🔍 시뮬레이션 검색 결과 URL들:")
+        for i, result in enumerate(sample_results[:max_results]):
+            print(f"  [{i+1}] {result['url']}")
+            print(f"      제목: {result['title'][:80]}...")
+        
+        print(f"✅ 시뮬레이션 검색 완료: 총 {len(sample_results[:max_results])}개 결과")
         return sample_results[:max_results]
     
     async def fetch_url_content(self, url: str) -> Dict[str, Any]:
