@@ -1,5 +1,17 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { ObjectType, Field, ID } from '@nestjs/graphql';
+import { ObjectType, Field, ID, Int } from '@nestjs/graphql';
+
+@ObjectType()
+export class ContextInfo {
+  @Field(() => Int)
+  shortTermMemory: number;
+
+  @Field(() => Int)
+  longTermMemory: number;
+
+  @Field(() => Int)
+  webSearch: number;
+}
 
 @ObjectType()
 @Entity('conversations')
@@ -43,6 +55,9 @@ export class Message {
   @Field(() => [String], { nullable: true })
   @Column({ type: 'json', nullable: true })
   sources: string[];
+
+  @Field(() => ContextInfo, { nullable: true })
+  contextInfo: ContextInfo;
 
   @Field()
   @CreateDateColumn()

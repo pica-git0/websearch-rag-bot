@@ -101,7 +101,7 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
           role: 'assistant',
           createdAt: data.sendMessage.createdAt || new Date().toISOString(),
           sources: data.sendMessage.sources || [],
-          contextInfo: {
+          contextInfo: data.sendMessage.contextInfo || {
             shortTermMemory: 0,
             longTermMemory: 0,
             webSearch: data.sendMessage.sources?.length || 0

@@ -43,7 +43,7 @@ export class ChatResolver {
     @Args('conversationId') conversationId: string,
     @Args('content') content: string,
     @Args('useWebSearch', { defaultValue: true }) useWebSearch: boolean,
-  ): Promise<Message> {
+  ): Promise<any> {
     const result = await this.chatService.sendMessage(conversationId, content, useWebSearch);
     
     // 실시간 업데이트를 위한 이벤트 발행
@@ -52,7 +52,10 @@ export class ChatResolver {
       conversationId,
     });
 
-    return result.message;
+    return {
+      ...result.message,
+      contextInfo: result.contextInfo
+    };
   }
 
   @Mutation(() => Boolean)

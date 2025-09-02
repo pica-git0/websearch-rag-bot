@@ -27,6 +27,11 @@ export const SEND_MESSAGE = gql`
       role
       createdAt
       sources
+      contextInfo {
+        shortTermMemory
+        longTermMemory
+        webSearch
+      }
     }
   }
 `;

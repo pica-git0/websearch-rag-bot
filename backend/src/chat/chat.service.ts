@@ -39,7 +39,7 @@ export class ChatService {
     });
   }
 
-  async sendMessage(conversationId: string, content: string, useWebSearch: boolean = true): Promise<{ message: Message; response: string; sources: string[] }> {
+  async sendMessage(conversationId: string, content: string, useWebSearch: boolean = true): Promise<{ message: Message; response: string; sources: string[]; contextInfo: any }> {
     // 빈 메시지 체크
     if (!content || !content.trim()) {
       const errorMessage = this.messageRepository.create({
@@ -52,7 +52,12 @@ export class ChatService {
       return {
         message: errorMessage,
         response: '검색어가 없습니다. 구체적인 질문이나 검색하고 싶은 내용을 입력해주세요.',
-        sources: []
+        sources: [],
+        contextInfo: {
+          shortTermMemory: 0,
+          longTermMemory: 0,
+          webSearch: 0
+        }
       };
     }
 
@@ -66,8 +71,12 @@ export class ChatService {
 
       // RAG 서비스에 요청
       const ragServiceUrl = this.configService.get('RAG_SERVICE_URL', 'http://localhost:8000');
+      console.log('=== RAG Service 호출 시작 ===');
+      console.log('RAG Service URL:', ragServiceUrl);
+      console.log('Request payload:', { message: content, conversation_id: conversationId, use_web_search: useWebSearch });
       
       try {
+        console.log('RAG Service HTTP 요청 전송 중...');
         const response = await firstValueFrom(
           this.httpService.post(`${ragServiceUrl}/chat`, {
             message: content,
@@ -76,7 +85,20 @@ export class ChatService {
           })
         );
 
-        const { response: aiResponse, sources } = response.data;
+        console.log('=== RAG Service 응답 성공 ===');
+        console.log('RAG Service Response Status:', response.status);
+        console.log('RAG Service Response Headers:', response.headers);
+        console.log('RAG Service Response Data:', JSON.stringify(response.data, null, 2));
+        
+        const { response: aiResponse, sources, context_info } = response.data;
+        
+        // 디버깅을 위한 로그
+        console.log('=== 추출된 데이터 ===');
+        console.log('AI Response:', aiResponse);
+        console.log('Sources:', sources);
+        console.log('Context Info:', context_info);
+        console.log('Context Info type:', typeof context_info);
+        console.log('Context Info value:', JSON.stringify(context_info, null, 2));
 
         // AI 응답 저장
         const assistantMessage = this.messageRepository.create({
@@ -100,10 +122,18 @@ export class ChatService {
         return {
           message: assistantMessage,
           response: aiResponse,
-          sources: sources || []
+          sources: sources || [],
+          contextInfo: context_info || {
+            shortTermMemory: 0,
+            longTermMemory: 0,
+            webSearch: sources?.length || 0
+          }
         };
     } catch (error) {
-      console.error('RAG service error:', error);
+      console.error('=== RAG Service 에러 발생 ===');
+      console.error('Error details:', error);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
       
       // 에러 응답 저장
       const errorMessage = this.messageRepository.create({
@@ -116,7 +146,12 @@ export class ChatService {
       return {
         message: errorMessage,
         response: '죄송합니다. 서비스에 일시적인 문제가 발생했습니다.',
-        sources: []
+        sources: [],
+        contextInfo: {
+          shortTermMemory: 0,
+          longTermMemory: 0,
+          webSearch: 0
+        }
       };
     }
   }
