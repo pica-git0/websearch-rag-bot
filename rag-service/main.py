@@ -54,6 +54,18 @@ class SearchResponse(BaseModel):
     results: List[dict]
     total: int
 
+class StructuredChatRequest(BaseModel):
+    message: str
+    conversation_id: Optional[str] = None
+    use_web_search: bool = True
+    search_results: Optional[List[str]] = None
+
+class StructuredChatResponse(BaseModel):
+    response: str
+    sources: List[str]
+    conversation_id: str
+    context_info: Optional[Dict[str, int]] = None
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     """요청 로깅 미들웨어"""
@@ -119,6 +131,47 @@ async def chat(request: ChatRequest):
         duration = time.time() - start_time
         logging_service.log_error(e, {
             "endpoint": "/chat",
+            "message": request.message,
+            "duration": duration
+        })
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/chat/structured", response_model=StructuredChatResponse)
+async def chat_structured(request: StructuredChatRequest):
+    start_time = time.time()
+    
+    try:
+        logging_service.log_application_event(
+            "structured_chat_request", 
+            "Structured chat request received", 
+            message_length=len(request.message),
+            use_web_search=request.use_web_search
+        )
+        
+        response, sources, conversation_id, context_info = await rag_service.generate_structured_response(
+            request.message, 
+            request.conversation_id,
+            request.use_web_search
+        )
+        
+        duration = time.time() - start_time
+        logging_service.log_performance(
+            "structured_chat_processing", 
+            duration,
+            message_length=len(request.message),
+            sources_count=len(sources)
+        )
+        
+        return StructuredChatResponse(
+            response=response,
+            sources=sources,
+            conversation_id=conversation_id,
+            context_info=context_info
+        )
+    except Exception as e:
+        duration = time.time() - start_time
+        logging_service.log_error(e, {
+            "endpoint": "/chat/structured",
             "message": request.message,
             "duration": duration
         })

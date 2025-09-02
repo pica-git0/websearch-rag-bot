@@ -444,6 +444,225 @@ class RAGService:
         """검색 결과가 없을 때 기본 AI 정보 제공"""
         return "검색어가 없습니다. 구체적인 질문이나 검색하고 싶은 내용을 입력해주세요."
     
+    def _create_structured_prompt(self, message: str, context: str, chat_history: List = None) -> str:
+        """구조화된 분석 답변을 위한 프롬프트 생성"""
+        
+        # 대화 히스토리 처리
+        chat_history_text = ""
+        if chat_history and len(chat_history) > 0:
+            chat_history_text = "\n=== 이전 대화 내용 ===\n"
+            for i, msg in enumerate(chat_history[-6:], 1):  # 최근 6개 메시지만 포함
+                if hasattr(msg, 'content'):
+                    role = "사용자" if hasattr(msg, 'type') and msg.type == 'human' else "AI"
+                    chat_history_text += f"{i}. {role}: {msg.content}\n"
+            chat_history_text += "==================\n"
+        
+        structured_prompt = f"""당신은 정보를 체계적으로 분석하고 구조화된 답변을 제공하는 전문가입니다.
+
+{chat_history_text}
+
+사용자 질문: {message}
+
+{context}
+
+다음 형식으로 구조화된 분석 답변을 생성하세요:
+
+## 📋 핵심 요약
+[2-3문장으로 핵심 내용 요약]
+
+## 🔍 세부 분석
+### [첫 번째 주제/요인]
+[구체적인 설명과 예시, 데이터 포함]
+
+### [두 번째 주제/요인]
+[구체적인 설명과 예시, 데이터 포함]
+
+### [세 번째 주제/요인] (필요한 경우)
+[구체적인 설명과 예시, 데이터 포함]
+
+## 💡 결론 및 인사이트
+[핵심 포인트와 향후 전망, 트렌드 분석]
+
+답변 시 다음 사항을 준수하세요:
+- 불릿 포인트(•) 활용하여 가독성 향상
+- 구체적인 데이터, 통계, 예시 포함
+- 사용자 친화적이고 이해하기 쉬운 언어 사용
+- 논리적 구조와 흐름 유지
+- 한국어로 답변
+- 참고한 정보의 출처를 간단히 언급
+
+답변:"""
+        
+        return structured_prompt
+    
+    async def generate_structured_response(self, message: str, conversation_id: str = None, use_web_search: bool = True) -> Tuple[str, List[str], str, Dict[str, int]]:
+        """구조화된 분석 답변 생성 - 체계적이고 분석적인 답변 제공"""
+        try:
+            # 빈 메시지 체크
+            if not message or not message.strip():
+                empty_context_info = {
+                    'shortTermMemory': 0,
+                    'longTermMemory': 0,
+                    'webSearch': 0
+                }
+                return "검색어가 없습니다. 구체적인 질문이나 검색하고 싶은 내용을 입력해주세요.", [], conversation_id or str(uuid.uuid4()), empty_context_info
+            
+            # 대화 ID 생성
+            if not conversation_id:
+                conversation_id = str(uuid.uuid4())
+            
+            # 대화 메모리 초기화
+            if conversation_id not in self.conversation_memories:
+                self.conversation_memories[conversation_id] = ConversationBufferMemory(
+                    memory_key="chat_history",
+                    return_messages=True
+                )
+            
+            memory = self.conversation_memories[conversation_id]
+            
+            # 대화별 콜렉션 확인/생성
+            conversation_vector_store = await self._ensure_conversation_collection(conversation_id)
+            
+            # 웹 검색 필요성 판단
+            should_search = use_web_search and self._should_use_web_search(message)
+            
+            # 1단계: 웹 검색 수행 (필요한 경우에만)
+            sources = []
+            if should_search:
+                print(f"구조화된 답변을 위한 웹 검색 수행 중: {message}")
+                search_results = await self.web_search.search(message, max_results=8)  # 더 많은 정보 수집
+                
+                # 2단계: 검색 결과를 대화별 콜렉션에 저장
+                for result in search_results:
+                    if result.get('url'):
+                        try:
+                            # URL에서 콘텐츠 추출
+                            content = await self.web_search.fetch_url_content(result['url'])
+                            if content.get('content'):
+                                # 텍스트 분할
+                                documents = self.text_splitter.split_text(content['content'])
+                                
+                                # 벡터 스토어에 추가 (대화별 콜렉션)
+                                doc_objects = []
+                                for i, doc_text in enumerate(documents):
+                                    doc_objects.append(Document(
+                                        page_content=doc_text,
+                                        metadata={
+                                            'url': result['url'],
+                                            'title': content.get('title', ''),
+                                            'chunk_index': i,
+                                            'total_chunks': len(documents),
+                                            'source_url': result['url'],
+                                            'search_query': message,
+                                            'conversation_id': conversation_id,
+                                            'timestamp': asyncio.get_event_loop().time()
+                                        }
+                                    ))
+                                
+                                # 대화별 콜렉션에 저장
+                                conversation_vector_store.add_documents(doc_objects)
+                                sources.append(result['url'])
+                                print(f"구조화된 답변용 URL 인덱싱 완료: {result['url']}")
+                        except Exception as e:
+                            print(f"구조화된 답변용 URL 인덱싱 실패 {result['url']}: {e}")
+                            continue
+            else:
+                print(f"구조화된 답변을 위한 웹 검색 건너뛰기: {message} (로컬 메모리만 사용)")
+            
+            # 3단계: 단기기억 → 장기기억 → 웹검색 순으로 컨텍스트 수집
+            print(f"구조화된 답변을 위한 컨텍스트 수집 중: {message}")
+            
+            # 3-1: 단기기억 (현재 대화)에서 검색
+            short_term_context = []
+            try:
+                print(f"단기기억 검색 시작: {self._get_conversation_collection_name(conversation_id)}")
+                short_term_results = conversation_vector_store.similarity_search(message, k=5)  # 더 많은 문서 검색
+                short_term_context = [result for result in short_term_results if hasattr(result, 'page_content') and result.page_content]
+                print(f"단기기억에서 {len(short_term_context)}개 문서 검색 완료")
+            except Exception as e:
+                print(f"단기기억 검색 실패: {e}")
+                print(f"단기기억 벡터 스토어 상태: {type(conversation_vector_store)}")
+                short_term_context = []
+            
+            # 3-2: 장기기억 (대화별 히스토리)에서 검색
+            long_term_context = []
+            try:
+                print(f"장기기억 검색 시작: {self._get_long_term_memory_collection_name(conversation_id)}")
+                long_term_vector_store = await self._ensure_long_term_memory_collection(conversation_id)
+                long_term_results = long_term_vector_store.similarity_search(message, k=5)  # 더 많은 문서 검색
+                long_term_context = [result for result in long_term_results if hasattr(result, 'page_content') and result.page_content]
+                print(f"장기기억에서 {len(long_term_context)}개 문서 검색 완료")
+            except Exception as e:
+                print(f"장기기억 검색 실패: {e}")
+                print(f"장기기억 벡터 스토어 상태: {type(long_term_vector_store) if 'long_term_vector_store' in locals() else 'Not created'}")
+                long_term_context = []
+            
+            # 4단계: 통합 컨텍스트 생성
+            all_context_docs = []
+            
+            # 단기기억 우선 (가장 관련성 높음)
+            for result in short_term_context:
+                all_context_docs.append(result)
+                if hasattr(result, 'metadata') and result.metadata.get('url') and result.metadata.get('url') not in sources:
+                    sources.append(result.metadata.get('url'))
+            
+            # 장기기억 추가 (중간 관련성)
+            for result in long_term_context:
+                all_context_docs.append(result)
+                if hasattr(result, 'metadata') and result.metadata.get('url') and result.metadata.get('url') not in sources:
+                    sources.append(result.metadata.get('url'))
+            
+            # 컨텍스트 생성
+            context = self._create_context(all_context_docs)
+            print(f"구조화된 답변용 통합 컨텍스트: 단기기억 {len(short_term_context)}개, 장기기억 {len(long_term_context)}개, 웹검색 {len(sources)}개")
+            
+            # 검색 결과가 없을 때 기본 정보 제공
+            if not all_context_docs and not sources:
+                print("구조화된 답변을 위한 검색 결과가 없어 기본 AI 정보를 제공합니다.")
+                context = self._get_default_ai_context(message)
+            
+            # 5단계: 구조화된 프롬프트 생성 및 LLM 응답
+            structured_prompt = self._create_structured_prompt(
+                message, 
+                context, 
+                chat_history=memory.chat_memory.messages
+            )
+            
+            print("구조화된 분석 답변 생성 중...")
+            if hasattr(self.llm, 'invoke'):
+                # 최신 LangChain API
+                response = self.llm.invoke(structured_prompt)
+                if hasattr(response, 'content'):
+                    response = response.content
+            else:
+                # 구버전 호환성
+                response = self.llm(structured_prompt)
+            
+            # 대화 메모리에 저장
+            memory.chat_memory.add_user_message(message)
+            memory.chat_memory.add_ai_message(response)
+            
+            # 6단계: 현재 대화를 장기기억에 저장
+            await self._save_to_long_term_memory(conversation_id, message, response, sources)
+            
+            # 컨텍스트 정보 생성
+            context_info = {
+                'shortTermMemory': len(short_term_context),
+                'longTermMemory': len(long_term_context),
+                'webSearch': len(sources)
+            }
+            
+            return response, sources, conversation_id, context_info
+            
+        except Exception as e:
+            print(f"구조화된 답변 생성 오류: {e}")
+            error_context_info = {
+                'shortTermMemory': 0,
+                'longTermMemory': 0,
+                'webSearch': 0
+            }
+            return f"죄송합니다. 구조화된 답변 생성 중 오류가 발생했습니다: {str(e)}", [], conversation_id or str(uuid.uuid4()), error_context_info
+    
     async def _save_to_long_term_memory(self, conversation_id: str, user_message: str, ai_response: str, sources: List[str]) -> None:
         """현재 대화를 장기기억에 저장 (대화별 분리)"""
         try:
