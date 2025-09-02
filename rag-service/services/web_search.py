@@ -363,10 +363,45 @@ class WebSearchService:
         """세션 정리"""
         await self.session.aclose()
 
-    async def classify_search_query(self, query: str) -> Dict[str, Any]:
-        """검색어를 분류하여 적절한 검색 전략 결정"""
+    async def classify_search_query(self, query: str, search_results: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """검색어를 웹 검색 컨텍스트와 함께 분석하여 분류"""
         try:
-            classification_prompt = f"""
+            # 웹 검색 컨텍스트가 있으면 포함
+            context_info = ""
+            if search_results:
+                context_info = self._extract_context_from_search_results(search_results)
+                classification_prompt = f"""
+다음 검색어와 웹 검색 결과를 종합적으로 분석하여 분류해주세요:
+
+검색어: "{query}"
+
+웹 검색 컨텍스트:
+{context_info}
+
+분류 카테고리:
+1. 사람 (person): 인물, 유명인, 전문가, 일반인
+2. 동물 (animal): 동물, 생물, 반려동물
+3. 추상적 개념 (concept): 아이디어, 이론, 철학, 감정, 상태
+4. 기업/조직 (organization): 회사, 단체, 정부기관, NGO
+5. 사물/제품 (object): 물건, 제품, 도구, 장비
+6. 장소 (location): 지역, 국가, 도시, 건물
+7. 이벤트 (event): 행사, 축제, 경기, 회의
+8. 기타 (other): 위 카테고리에 속하지 않는 것
+
+웹 검색 결과를 바탕으로 더 정확한 분류를 제공하세요.
+분류 결과를 JSON 형식으로 출력하세요:
+{{
+    "category": "카테고리명",
+    "confidence": 0.95,
+    "subcategory": "세부분류",
+    "search_strategy": "검색 전략",
+    "keywords": ["추가 키워드1", "추가 키워드2"],
+    "context_insights": "웹 검색 결과에서 발견된 주요 인사이트"
+}}
+"""
+            else:
+                # 웹 검색 컨텍스트가 없는 경우 기본 분류
+                classification_prompt = f"""
 다음 검색어를 분석하여 분류해주세요:
 
 검색어: "{query}"
@@ -400,10 +435,10 @@ class WebSearchService:
                     response = client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[
-                            {"role": "system", "content": "당신은 검색어 분류 전문가입니다. 정확하고 일관된 분류를 제공합니다."},
+                            {"role": "system", "content": "당신은 검색어 분류 전문가입니다. 웹 검색 결과를 바탕으로 정확하고 일관된 분류를 제공합니다."},
                             {"role": "user", "content": classification_prompt}
                         ],
-                        max_tokens=200,
+                        max_tokens=2000,
                         temperature=0.1
                     )
                     
@@ -413,7 +448,10 @@ class WebSearchService:
                         try:
                             import json
                             classification = json.loads(result_text)
-                            print(f"🔍 검색어 분류 결과: {query} -> {classification['category']} (신뢰도: {classification['confidence']})")
+                            if search_results:
+                                print(f"🔍 컨텍스트 기반 검색어 분류 결과: {query} -> {classification['category']} (신뢰도: {classification['confidence']})")
+                            else:
+                                print(f"🔍 기본 검색어 분류 결과: {query} -> {classification['category']} (신뢰도: {classification['confidence']})")
                             return classification
                         except json.JSONDecodeError:
                             print(f"JSON 파싱 실패, 기본 분류 사용: {result_text}")
@@ -544,3 +582,40 @@ class WebSearchService:
                 "search_strategy": "일반 정보 검색",
                 "keywords": ["정보", "뉴스", "최신", "트렌드"]
             }
+
+    def _extract_context_from_search_results(self, search_results: List[Dict[str, Any]]) -> str:
+        """검색 결과에서 핵심 컨텍스트 정보 추출"""
+        try:
+            context_parts = []
+            
+            for i, result in enumerate(search_results[:5]):  # 상위 5개 결과만 사용
+                title = result.get('title', '')
+                snippet = result.get('snippet', '')
+                url = result.get('url', '')
+                
+                # 제목과 스니펫에서 핵심 정보 추출
+                combined_text = f"{title} {snippet}"
+                
+                # URL에서 도메인 정보 추출
+                try:
+                    from urllib.parse import urlparse
+                    parsed_url = urlparse(url)
+                    domain = parsed_url.netloc
+                    if domain:
+                        context_parts.append(f"소스 {i+1}: {domain}")
+                except:
+                    pass
+                
+                # 제목과 스니펫 요약
+                if title:
+                    context_parts.append(f"제목 {i+1}: {title[:100]}")
+                if snippet:
+                    context_parts.append(f"내용 {i+1}: {snippet[:150]}")
+                
+                context_parts.append("---")
+            
+            return "\n".join(context_parts)
+            
+        except Exception as e:
+            print(f"컨텍스트 추출 중 오류: {e}")
+            return "컨텍스트 추출 실패"
