@@ -44,14 +44,6 @@ export class Message {
   @Column({ type: 'json', nullable: true })
   sources: string[];
 
-  @Field(() => Object, { nullable: true })
-  @Column({ type: 'json', nullable: true })
-  contextInfo: {
-    shortTermMemory: number;
-    longTermMemory: number;
-    webSearch: number;
-  };
-
   @Field()
   @CreateDateColumn()
   createdAt: Date;

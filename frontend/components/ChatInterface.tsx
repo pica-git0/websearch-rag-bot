@@ -29,6 +29,7 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [useWebSearch, setUseWebSearch] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // GraphQL 뮤테이션과 쿼리
@@ -84,10 +85,12 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
 
     try {
       // 백엔드의 sendMessage 뮤테이션을 사용하여 RAG 서비스와 통신
+      // useWebSearch 상태를 메시지에 포함하여 전달
       const { data } = await sendMessage({
         variables: {
           conversationId: selectedConversationId,
-          content: inputValue.trim()
+          content: inputValue.trim(),
+          useWebSearch: useWebSearch
         }
       })
 
@@ -145,6 +148,10 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
     }
   }
 
+  const handleWebSearchToggle = (enabled: boolean) => {
+    setUseWebSearch(enabled)
+  }
+
   if (!selectedConversationId) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -178,14 +185,14 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
       </div>
 
       {/* 메시지 입력 */}
-      <div className="border-t border-gray-200 p-4">
-                 <MessageInput
-           value={inputValue}
-           onChange={setInputValue}
-           onSend={handleSendMessage}
-           disabled={!selectedConversationId}
-         />
-      </div>
+      <MessageInput
+        value={inputValue}
+        onChange={setInputValue}
+        onSend={handleSendMessage}
+        disabled={!selectedConversationId}
+        useWebSearch={useWebSearch}
+        onWebSearchToggle={handleWebSearchToggle}
+      />
     </div>
   )
 }

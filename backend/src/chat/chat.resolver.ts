@@ -42,8 +42,9 @@ export class ChatResolver {
   async sendMessage(
     @Args('conversationId') conversationId: string,
     @Args('content') content: string,
+    @Args('useWebSearch', { defaultValue: true }) useWebSearch: boolean,
   ): Promise<Message> {
-    const result = await this.chatService.sendMessage(conversationId, content);
+    const result = await this.chatService.sendMessage(conversationId, content, useWebSearch);
     
     // 실시간 업데이트를 위한 이벤트 발행
     pubSub.publish('messageAdded', {

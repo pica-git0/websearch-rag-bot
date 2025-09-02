@@ -39,7 +39,7 @@ export class ChatService {
     });
   }
 
-  async sendMessage(conversationId: string, content: string): Promise<{ message: Message; response: string; sources: string[]; contextInfo: any }> {
+  async sendMessage(conversationId: string, content: string, useWebSearch: boolean = true): Promise<{ message: Message; response: string; sources: string[] }> {
     // 빈 메시지 체크
     if (!content || !content.trim()) {
       const errorMessage = this.messageRepository.create({
@@ -52,12 +52,7 @@ export class ChatService {
       return {
         message: errorMessage,
         response: '검색어가 없습니다. 구체적인 질문이나 검색하고 싶은 내용을 입력해주세요.',
-        sources: [],
-        contextInfo: {
-          shortTermMemory: 0,
-          longTermMemory: 0,
-          webSearch: 0
-        }
+        sources: []
       };
     }
 
@@ -77,11 +72,11 @@ export class ChatService {
           this.httpService.post(`${ragServiceUrl}/chat`, {
             message: content,
             conversation_id: conversationId,
-            use_web_search: true,
+            use_web_search: useWebSearch,
           })
         );
 
-        const { response: aiResponse, sources, context_info } = response.data;
+        const { response: aiResponse, sources } = response.data;
 
         // AI 응답 저장
         const assistantMessage = this.messageRepository.create({
@@ -105,12 +100,7 @@ export class ChatService {
         return {
           message: assistantMessage,
           response: aiResponse,
-          sources: sources || [],
-          contextInfo: context_info || {
-            shortTermMemory: 0,
-            longTermMemory: 0,
-            webSearch: sources?.length || 0
-          }
+          sources: sources || []
         };
     } catch (error) {
       console.error('RAG service error:', error);
@@ -126,12 +116,7 @@ export class ChatService {
       return {
         message: errorMessage,
         response: '죄송합니다. 서비스에 일시적인 문제가 발생했습니다.',
-        sources: [],
-        contextInfo: {
-          shortTermMemory: 0,
-          longTermMemory: 0,
-          webSearch: 0
-        }
+        sources: []
       };
     }
   }
