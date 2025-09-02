@@ -727,21 +727,25 @@ class RAGService:
                                             'title': content.get('title', ''),
                                             'relevance_score': self._calculate_relevance_score(relevant_content, topic)
                                         })
-                                        topic_sources.append(result['url'])
-                                        all_sources.append(result['url'])
                             except Exception as e:
                                 print(f"주제별 콘텐츠 추출 실패 {result['url']}: {e}")
                                 continue
                     
-                    # 관련성 점수로 정렬
+                    # 관련성 점수로 정렬하고, 정렬된 순서에 맞춰 sources도 함께 정리
                     topic_content.sort(key=lambda x: x['relevance_score'], reverse=True)
+                    
+                    # 정렬된 content에서 URL을 추출하여 sources 생성
+                    sorted_sources = [item['url'] for item in topic_content[:2]]  # 상위 2개 결과만 사용
                     
                     topic_research_results[topic] = {
                         'content': topic_content[:2],  # 상위 2개 결과만 사용
-                        'sources': topic_sources[:2]
+                        'sources': sorted_sources
                     }
                     
-                    print(f"주제 '{topic}' 검색 완료: {len(topic_content)}개 결과, {len(topic_sources)}개 소스")
+                    # 전체 소스 목록에도 추가
+                    all_sources.extend(sorted_sources)
+                    
+                    print(f"주제 '{topic}' 검색 완료: {len(topic_content)}개 결과, {len(sorted_sources)}개 소스")
             
             # 3단계: 구조화된 답변 생성
             structured_response = await self._generate_topic_based_answer(message, topics, topic_research_results)
