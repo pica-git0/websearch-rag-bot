@@ -1200,7 +1200,7 @@ class RAGService:
             
             if data['content']:
                 for i, content_item in enumerate(data['content']):
-                    formatted += f"내용 {i+1}: {content_item['content'][:300]}...\n"
+                    formatted += f"내용 {i+1}: {content_item['content'][:1000]}...\n"
                     formatted += f"URL {i+1}: {content_item['url']}\n"
             else:
                 formatted += "관련 정보를 찾을 수 없습니다.\n"
