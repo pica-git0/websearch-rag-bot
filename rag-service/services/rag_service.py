@@ -272,21 +272,27 @@ class RAGService:
             # 3-1: 단기기억 (현재 대화)에서 검색
             short_term_context = []
             try:
+                print(f"단기기억 검색 시작: {self._get_conversation_collection_name(conversation_id)}")
                 short_term_results = conversation_vector_store.similarity_search(message, k=3)
                 short_term_context = [result for result in short_term_results if hasattr(result, 'page_content') and result.page_content]
-                print(f"단기기억에서 {len(short_term_context)}개 문서 검색")
+                print(f"단기기억에서 {len(short_term_context)}개 문서 검색 완료")
             except Exception as e:
                 print(f"단기기억 검색 실패: {e}")
+                print(f"단기기억 벡터 스토어 상태: {type(conversation_vector_store)}")
+                short_term_context = []
             
             # 3-2: 장기기억 (대화별 히스토리)에서 검색
             long_term_context = []
             try:
+                print(f"장기기억 검색 시작: {self._get_long_term_memory_collection_name(conversation_id)}")
                 long_term_vector_store = await self._ensure_long_term_memory_collection(conversation_id)
                 long_term_results = long_term_vector_store.similarity_search(message, k=3)
                 long_term_context = [result for result in long_term_results if hasattr(result, 'page_content') and result.page_content]
-                print(f"장기기억에서 {len(long_term_context)}개 문서 검색")
+                print(f"장기기억에서 {len(long_term_context)}개 문서 검색 완료")
             except Exception as e:
                 print(f"장기기억 검색 실패: {e}")
+                print(f"장기기억 벡터 스토어 상태: {type(long_term_vector_store) if 'long_term_vector_store' in locals() else 'Not created'}")
+                long_term_context = []
             
             # 3-3: 웹검색 결과를 현재 대화에 저장 (이미 수행됨)
             web_search_context = []
