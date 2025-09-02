@@ -10,6 +10,7 @@ import os
 import uuid
 from typing import List, Dict, Any, Tuple
 import asyncio
+import re
 
 from dotenv import load_dotenv
 
@@ -634,6 +635,8 @@ class RAGService:
                 response = self.llm.invoke(structured_prompt)
                 if hasattr(response, 'content'):
                     response = response.content
+                else:
+                    response = str(response)
             else:
                 # 구버전 호환성
                 response = self.llm(structured_prompt)
@@ -664,7 +667,7 @@ class RAGService:
             return f"죄송합니다. 구조화된 답변 생성 중 오류가 발생했습니다: {str(e)}", [], conversation_id or str(uuid.uuid4()), error_context_info
     
     async def generate_topic_based_response(self, message: str, conversation_id: str = None, use_web_search: bool = True) -> Tuple[str, List[str], str, Dict[str, int]]:
-        """질문 분석 → 주제 추출 → 주제별 웹 검색 → 구조화된 답변 생성"""
+        """질문 분석 → 웹 검색 → 특정 대상 식별 → 주제 추출 → 주제별 웹 검색 → 구조화된 답변 생성"""
         try:
             # 빈 메시지 체크
             if not message or not message.strip():
@@ -690,11 +693,18 @@ class RAGService:
             
             print(f"=== 주제 기반 답변 생성 시작 ===: {message}")
             
-            # 1단계: 질문 분석 및 주제 추출
-            topics = await self._extract_topics_from_question(message)
+            # 1단계: 질문에 대한 초기 웹 검색 수행
+            initial_search_results = []
+            if use_web_search:
+                print(f"1단계: 질문에 대한 초기 웹 검색 수행: {message}")
+                initial_search_results = await self.web_search.search(message, max_results=5)
+                print(f"초기 검색 결과: {len(initial_search_results)}개")
+            
+            # 2단계: 검색 결과에서 특정 대상 식별 및 주제 추출
+            topics = await self._extract_topics_from_question_with_context(message, initial_search_results)
             print(f"추출된 주제들: {topics}")
             
-            # 2단계: 주제별 웹 검색 및 정보 수집
+            # 3단계: 주제별 웹 검색 및 정보 수집
             topic_research_results = {}
             all_sources = []
             
@@ -747,7 +757,7 @@ class RAGService:
                     
                     print(f"주제 '{topic}' 검색 완료: {len(topic_content)}개 결과, {len(sorted_sources)}개 소스")
             
-            # 3단계: 구조화된 답변 생성
+            # 4단계: 구조화된 답변 생성
             structured_response = await self._generate_topic_based_answer(message, topics, topic_research_results)
             
             # 대화 메모리에 저장
@@ -834,6 +844,163 @@ class RAGService:
             print(f"주제 추출 실패: {e}")
             # 기본 주제 생성
             return [question]
+    
+    async def _extract_topics_from_question_with_context(self, question: str, search_results: List[Dict[str, Any]]) -> List[str]:
+        """초기 웹 검색 결과를 바탕으로 질문에서 핵심 주제들을 추출"""
+        try:
+            # 검색 결과에서 특정 대상 식별
+            identified_entities = self._identify_entities_from_search_results(search_results)
+            
+            # 주제 추출을 위한 프롬프트 생성
+            topic_extraction_prompt = f"""
+당신은 사용자의 질문과 웹 검색 결과를 분석하여 핵심 주제들을 추출하는 전문가입니다.
+
+사용자 질문: {question}
+
+웹 검색 결과에서 식별된 특정 대상들:
+{self._format_entities_for_prompt(identified_entities)}
+
+다음 지침에 따라 3-4개의 핵심 주제를 추출해주세요:
+
+1. **식별된 특정 대상 활용**: 검색 결과에서 발견된 구체적인 대상, 인물, 회사, 제품 등을 중심으로 주제 구성
+2. **질문의 핵심 의도 파악**: 사용자가 무엇을 알고 싶어하는지 파악
+3. **주제 분류**: 관련된 개념들을 논리적으로 그룹화
+4. **검색 가능한 주제**: 각 주제가 독립적으로 웹 검색 가능해야 함
+5. **사람들이 궁금해할 만한 주제**: 일반적으로 관심을 가질 만한 주제
+
+출력 형식:
+- 주제1: [구체적인 주제명]
+    
+- 주제2: [구체적인 주제명]
+
+- 주제3: [구체적인 주제명]
+
+- 주제4: [구체적인 주제명] (필요한 경우)
+
+예시:
+질문: "라부부 말차는 왜 이렇게 떴어?"
+식별된 대상: 라부부 아트토이, 말차 음료
+주제들:
+- 라부부 아트토이의 인기 요인
+
+- 말차 음료/디저트의 트렌드
+
+- MZ세대의 소비 패턴 변화
+
+- SNS와 셀럽의 영향
+
+답변:"""
+
+            # LLM을 사용하여 주제 추출
+            if hasattr(self.llm, 'invoke'):
+                response = self.llm.invoke(topic_extraction_prompt)
+                if hasattr(response, 'content'):
+                    response_text = response.content
+                else:
+                    response_text = str(response)
+            else:
+                response_text = self.llm(topic_extraction_prompt)
+            
+            # 응답에서 주제들 추출
+            topics = self._parse_topics_from_response(response_text)
+            print(f"LLM 응답: {response_text}")
+            print(f"파싱된 주제들: {topics}")
+            
+            return topics[:4]  # 최대 4개 주제
+            
+        except Exception as e:
+            print(f"컨텍스트 기반 주제 추출 실패: {e}")
+            # 기본 주제 추출으로 폴백
+            return await self._extract_topics_from_question(question)
+    
+    def _identify_entities_from_search_results(self, search_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """검색 결과에서 특정 대상(엔티티)들을 식별"""
+        entities = []
+        
+        for result in search_results:
+            title = result.get('title', '')
+            snippet = result.get('snippet', '')
+            
+            # 제목과 스니펫에서 엔티티 추출
+            extracted_entities = self._extract_entities_from_text(f"{title} {snippet}")
+            
+            for entity in extracted_entities:
+                # 중복 제거
+                if not any(existing['name'] == entity['name'] for existing in entities):
+                    entities.append(entity)
+        
+        return entities[:5]  # 최대 5개 엔티티
+    
+    def _extract_entities_from_text(self, text: str) -> List[Dict[str, Any]]:
+        """텍스트에서 엔티티(특정 대상) 추출"""
+        entities = []
+        
+        # 간단한 패턴 매칭으로 엔티티 추출
+        # 회사명, 브랜드명, 제품명, 인물명 등을 찾기 위한 패턴들
+        
+        # 한국어 회사/브랜드 패턴 (예: 삼성전자, 현대자동차, 라부부)
+        korean_brands = re.findall(r'[가-힣]{2,}(?:전자|자동차|그룹|기업|주식회사|㈜|㈐)', text)
+        for brand in korean_brands:
+            entities.append({
+                'name': brand,
+                'type': 'company',
+                'confidence': 0.8
+            })
+        
+        # 영어 회사/브랜드 패턴 (예: Apple, Google, Microsoft)
+        english_brands = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', text)
+        for brand in english_brands:
+            if len(brand) > 2 and brand.lower() not in ['the', 'and', 'for', 'with', 'from']:
+                entities.append({
+                    'name': brand,
+                    'type': 'company',
+                    'confidence': 0.7
+                })
+        
+        # 제품명 패턴 (예: "iPhone 15", "갤럭시 S24")
+        product_patterns = [
+            r'[가-힣]+(?:\s+[가-힣]+)*\s*\d+',  # 한국어 제품명 + 숫자
+            r'[A-Za-z]+\s*\d+',  # 영어 제품명 + 숫자
+        ]
+        
+        for pattern in product_patterns:
+            products = re.findall(pattern, text)
+            for product in products:
+                if len(product) > 3:
+                    entities.append({
+                        'name': product,
+                        'type': 'product',
+                        'confidence': 0.6
+                    })
+        
+        # 인물명 패턴 (예: "김철수", "John Doe")
+        person_patterns = [
+            r'[가-힣]{2,3}',  # 한국어 이름 (2-3글자)
+            r'[A-Z][a-z]+\s+[A-Z][a-z]+',  # 영어 이름 (First Last)
+        ]
+        
+        for pattern in person_patterns:
+            persons = re.findall(pattern, text)
+            for person in persons:
+                if len(person) > 2:
+                    entities.append({
+                        'name': person,
+                        'type': 'person',
+                        'confidence': 0.5
+                    })
+        
+        return entities
+    
+    def _format_entities_for_prompt(self, entities: List[Dict[str, Any]]) -> str:
+        """프롬프트용으로 엔티티 정보를 포맷팅"""
+        if not entities:
+            return "특정 대상이 식별되지 않았습니다."
+        
+        formatted = []
+        for entity in entities:
+            formatted.append(f"- {entity['name']} ({entity['type']}, 신뢰도: {entity['confidence']})")
+        
+        return '\n'.join(formatted)
     
     def _parse_topics_from_response(self, response: str) -> List[str]:
         """LLM 응답에서 주제들을 파싱"""
