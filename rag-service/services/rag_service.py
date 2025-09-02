@@ -1029,9 +1029,12 @@ class RAGService:
         return topics
     
     def _generate_search_keywords(self, topic: str, original_question: str) -> str:
-        """주제별 검색 키워드 생성"""
-        # 주제와 원본 질문을 조합하여 검색 키워드 생성
-        keywords = f"{topic} {original_question}"
+        """주제별 검색 키워드 생성 - 질문의 핵심 속성을 추출하여 주제와 결합"""
+        # 질문에서 핵심 속성(의문사, 핵심 키워드) 추출
+        core_attributes = self._extract_core_attributes_from_question(original_question)
+        
+        # 주제와 핵심 속성을 결합하여 검색 키워드 생성
+        keywords = f"{topic} {core_attributes}"
         
         # 한국어 키워드 최적화
         if any(char in topic for char in '가나다라마바사아자차카타파하'):
@@ -1041,7 +1044,50 @@ class RAGService:
             # 영어 주제인 경우 한국어 키워드 추가
             keywords += " 한국 국내 현황 최신 소식"
         
+        print(f"주제 '{topic}' 검색 키워드 생성: '{keywords}' (핵심 속성: {core_attributes})")
         return keywords
+    
+    def _extract_core_attributes_from_question(self, question: str) -> str:
+        """질문에서 핵심 속성(의문사, 핵심 키워드)을 추출"""
+        core_attributes = []
+        
+        # 의문사 패턴 매칭
+        question_words = {
+            '왜': '이유 원인 배경',
+            '어떻게': '방법 과정 방법론',
+            '언제': '시기 타이밍 일정',
+            '어디서': '장소 지역 위치',
+            '누가': '주체 인물 회사',
+            '무엇을': '대상 제품 서비스',
+            '얼마나': '규모 수치 통계',
+            '어떤': '종류 유형 특징'
+        }
+        
+        # 질문에서 의문사 찾기
+        for question_word, attributes in question_words.items():
+            if question_word in question:
+                core_attributes.extend(attributes.split())
+                break  # 첫 번째 의문사만 사용
+        
+        # 질문에서 핵심 명사/키워드 추출 (의문사가 없는 경우)
+        if not core_attributes:
+            # 한국어 명사 패턴 (2글자 이상)
+            korean_nouns = re.findall(r'[가-힣]{2,}', question)
+            # 영어 명사 패턴 (대문자로 시작하는 단어)
+            english_nouns = re.findall(r'\b[A-Z][a-z]+\b', question)
+            
+            # 불용어 제거
+            stop_words = {'이', '가', '을', '를', '은', '는', '에', '의', '로', '와', '과', '도', '만', '부터', '까지'}
+            filtered_nouns = [noun for noun in korean_nouns + english_nouns if noun not in stop_words]
+            
+            if filtered_nouns:
+                core_attributes.extend(filtered_nouns[:3])  # 최대 3개만 사용
+        
+        # 핵심 속성이 없으면 기본값 사용
+        if not core_attributes:
+            core_attributes = ['정보', '현황', '트렌드']
+        
+        return ' '.join(core_attributes)
     
     def _extract_relevant_content(self, content: str, topic: str, keywords: str) -> str:
         """주제와 관련된 내용만 추출"""
