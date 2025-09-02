@@ -26,6 +26,7 @@ export const SEND_MESSAGE = gql`
       content
       role
       createdAt
+      sources
     }
   }
 `;

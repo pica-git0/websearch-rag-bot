@@ -12,6 +12,11 @@ interface Message {
   role: 'user' | 'assistant'
   sources?: string[]
   createdAt: string
+  contextInfo?: {
+    shortTermMemory: number
+    longTermMemory: number
+    webSearch: number
+  }
 }
 
 interface MessageListProps {
@@ -86,6 +91,32 @@ export function MessageList({ messages }: MessageListProps) {
                 {message.content}
               </ReactMarkdown>
             </div>
+
+            {/* 컨텍스트 정보 (AI 응답에만 표시) */}
+            {message.role === 'assistant' && message.contextInfo && (
+              <div className="mt-3 pt-3 border-t border-gray-300">
+                <div className="flex items-center text-xs text-gray-500 mb-2">
+                  <svg className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <span>메모리 사용:</span>
+                </div>
+                <div className="flex space-x-4 text-xs">
+                  <div className="flex items-center">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full mr-1"></div>
+                    <span>단기기억: {message.contextInfo.shortTermMemory}개</span>
+                  </div>
+                  <div className="flex items-center">
+                    <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                    <span>이전 대화: {message.contextInfo.longTermMemory}개</span>
+                  </div>
+                  <div className="flex items-center">
+                    <div className="w-2 h-2 bg-purple-500 rounded-full mr-1"></div>
+                    <span>웹검색: {message.contextInfo.webSearch}개</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* 소스 링크들 */}
             {message.sources && message.sources.length > 0 && (

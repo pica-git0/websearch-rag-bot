@@ -13,6 +13,11 @@ interface Message {
   role: 'user' | 'assistant'
   createdAt: string
   sources?: string[]
+  contextInfo?: {
+    shortTermMemory: number
+    longTermMemory: number
+    webSearch: number
+  }
 }
 
 interface ChatInterfaceProps {
@@ -92,7 +97,12 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
           content: data.sendMessage.content,
           role: 'assistant',
           createdAt: data.sendMessage.createdAt || new Date().toISOString(),
-          sources: data.sendMessage.sources || []
+          sources: data.sendMessage.sources || [],
+          contextInfo: {
+            shortTermMemory: 0,
+            longTermMemory: 0,
+            webSearch: data.sendMessage.sources?.length || 0
+          }
         }
 
         const finalMessages = [...updatedMessages, aiMessage]
