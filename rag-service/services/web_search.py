@@ -45,22 +45,49 @@ class WebSearchService:
     async def search(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
         """웹 검색 수행 - Google Custom Search API 우선, 대체로 DuckDuckGo 사용"""
         try:
-            # Google Custom Search API 사용 시도
-            if self.google_api_key and self.google_cse_id:
-                print(f"Google Custom Search API 사용: {query}")
+            # 검색어 분류
+            classification_result = await self.classify_search_query(query)
+            print(f"검색어 분류 결과: {classification_result}")
+            
+            # 분류 결과에 따라 검색 전략 선택
+            if classification_result['search_strategy'] == "인물 정보 검색":
+                print(f"인물 정보 검색 전략 사용: {query}")
                 search_results = await self._google_search(query, max_results)
                 if search_results:
                     return search_results
-            
-            # Google API가 없거나 실패한 경우 DuckDuckGo 사용
-            print(f"DuckDuckGo API 사용: {query}")
-            search_results = await self._duckduckgo_search(query, max_results)
-            if search_results:
-                return search_results
-            
-            # 모든 API가 실패한 경우 기본 검색 시뮬레이션
-            print(f"기본 검색 시뮬레이션 사용: {query}")
-            return await self._simulate_search(query, max_results)
+            elif classification_result['search_strategy'] == "동물 정보 검색":
+                print(f"동물 정보 검색 전략 사용: {query}")
+                search_results = await self._duckduckgo_search(query, max_results)
+                if search_results:
+                    return search_results
+            elif classification_result['search_strategy'] == "기업 정보 검색":
+                print(f"기업 정보 검색 전략 사용: {query}")
+                search_results = await self._google_search(query, max_results)
+                if search_results:
+                    return search_results
+            elif classification_result['search_strategy'] == "지역 정보 검색":
+                print(f"지역 정보 검색 전략 사용: {query}")
+                search_results = await self._duckduckgo_search(query, max_results)
+                if search_results:
+                    return search_results
+            elif classification_result['search_strategy'] == "이벤트 정보 검색":
+                print(f"이벤트 정보 검색 전략 사용: {query}")
+                search_results = await self._duckduckgo_search(query, max_results)
+                if search_results:
+                    return search_results
+            elif classification_result['search_strategy'] == "제품 정보 검색":
+                print(f"제품 정보 검색 전략 사용: {query}")
+                search_results = await self._google_search(query, max_results)
+                if search_results:
+                    return search_results
+            elif classification_result['search_strategy'] == "개념 정보 검색":
+                print(f"개념 정보 검색 전략 사용: {query}")
+                search_results = await self._duckduckgo_search(query, max_results)
+                if search_results:
+                    return search_results
+            else:
+                print(f"기본 검색 전략 사용: {query}")
+                return await self._simulate_search(query, max_results)
             
         except Exception as e:
             print(f"Error in web search: {e}")
@@ -429,3 +456,185 @@ class WebSearchService:
     async def close(self):
         """세션 정리"""
         await self.session.aclose()
+
+    async def classify_search_query(self, query: str) -> Dict[str, Any]:
+        """검색어를 분류하여 적절한 검색 전략 결정"""
+        try:
+            classification_prompt = f"""
+다음 검색어를 분석하여 분류해주세요:
+
+검색어: "{query}"
+
+분류 카테고리:
+1. 사람 (person): 인물, 유명인, 전문가, 일반인
+2. 동물 (animal): 동물, 생물, 반려동물
+3. 추상적 개념 (concept): 아이디어, 이론, 철학, 감정, 상태
+4. 기업/조직 (organization): 회사, 단체, 정부기관, NGO
+5. 사물/제품 (object): 물건, 제품, 도구, 장비
+6. 장소 (location): 지역, 국가, 도시, 건물
+7. 이벤트 (event): 행사, 축제, 경기, 회의
+8. 기타 (other): 위 카테고리에 속하지 않는 것
+
+분류 결과를 JSON 형식으로 출력하세요:
+{{
+    "category": "카테고리명",
+    "confidence": 0.95,
+    "subcategory": "세부분류",
+    "search_strategy": "검색 전략",
+    "keywords": ["추가 키워드1", "추가 키워드2"]
+}}
+"""
+
+            # OpenAI API를 사용하여 분류
+            if self.openai_api_key:
+                try:
+                    from openai import OpenAI
+                    client = OpenAI(api_key=self.openai_api_key)
+                    
+                    response = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[
+                            {"role": "system", "content": "당신은 검색어 분류 전문가입니다. 정확하고 일관된 분류를 제공합니다."},
+                            {"role": "user", "content": classification_prompt}
+                        ],
+                        max_tokens=200,
+                        temperature=0.1
+                    )
+                    
+                    if response.choices and response.choices[0].message:
+                        result_text = response.choices[0].message.content.strip()
+                        # JSON 파싱 시도
+                        try:
+                            import json
+                            classification = json.loads(result_text)
+                            print(f"🔍 검색어 분류 결과: {query} -> {classification['category']} (신뢰도: {classification['confidence']})")
+                            return classification
+                        except json.JSONDecodeError:
+                            print(f"JSON 파싱 실패, 기본 분류 사용: {result_text}")
+                
+                except Exception as e:
+                    print(f"GPT 분류 실패: {e}, 기본 분류 사용")
+            
+        except Exception as e:
+            print(f"검색어 분류 중 오류: {e}")
+        
+        # 기본 분류 (GPT API 실패 시)
+        return self._basic_query_classification(query)
+    
+    def _basic_query_classification(self, query: str) -> Dict[str, Any]:
+        """기본 규칙 기반 검색어 분류"""
+        query_lower = query.lower()
+        
+        # 사람 분류
+        person_patterns = [
+            r'[가-힣]{2,3}',  # 한국어 이름 (2-3글자)
+            r'\b[A-Z][a-z]+\s+[A-Z][a-z]+\b',  # 영어 이름
+            r'씨$|님$|군$|양$',  # 호칭
+            r'가수|배우|연예인|정치인|기업인|학자|의사|변호사'
+        ]
+        
+        # 동물 분류
+        animal_patterns = [
+            r'강아지|고양이|개|새|물고기|토끼|햄스터|거북이|고래|사자|호랑이|코끼리',
+            r'dog|cat|bird|fish|rabbit|hamster|turtle|whale|lion|tiger|elephant',
+            r'동물|생물|반려동물|야생동물|애완동물'
+        ]
+        
+        # 기업/조직 분류
+        organization_patterns = [
+            r'회사|기업|그룹|주식회사|㈜|㈐|corporation|company|inc|corp|ltd',
+            r'정부|청|부|처|기관|협회|재단|재단법인|사단법인',
+            r'학교|대학교|초등학교|중학교|고등학교|university|college|school'
+        ]
+        
+        # 장소 분류
+        location_patterns = [
+            r'서울|부산|대구|인천|광주|대전|울산|제주|경기|강원|충북|충남|전북|전남|경북|경남',
+            r'한국|일본|중국|미국|영국|프랑스|독일|korea|japan|china|usa|uk|france|germany',
+            r'시|군|구|동|읍|면|도|국|city|country|state|province'
+        ]
+        
+        # 이벤트 분류
+        event_patterns = [
+            r'축제|행사|경기|대회|회의|컨퍼런스|세미나|워크샵|festival|event|game|conference|seminar'
+        ]
+        
+        # 사물/제품 분류
+        object_patterns = [
+            r'폰|휴대폰|스마트폰|컴퓨터|노트북|태블릿|phone|smartphone|computer|laptop|tablet',
+            r'자동차|차|버스|기차|비행기|car|bus|train|airplane',
+            r'책|영화|음악|게임|book|movie|music|game'
+        ]
+        
+        # 추상적 개념 분류
+        concept_patterns = [
+            r'사랑|행복|슬픔|기쁨|분노|사랑|우정|가족|love|happiness|sadness|joy|anger|friendship|family',
+            r'민주주의|자유|평등|정의|democracy|freedom|equality|justice',
+            r'예술|철학|과학|기술|art|philosophy|science|technology'
+        ]
+        
+        # 패턴 매칭으로 분류
+        if any(re.search(pattern, query_lower) for pattern in person_patterns):
+            return {
+                "category": "person",
+                "confidence": 0.8,
+                "subcategory": "인물",
+                "search_strategy": "인물 정보 검색",
+                "keywords": ["프로필", "경력", "수상", "활동"]
+            }
+        elif any(re.search(pattern, query_lower) for pattern in animal_patterns):
+            return {
+                "category": "animal",
+                "confidence": 0.8,
+                "subcategory": "동물",
+                "search_strategy": "동물 정보 검색",
+                "keywords": ["특징", "습성", "사육법", "정보"]
+            }
+        elif any(re.search(pattern, query_lower) for pattern in organization_patterns):
+            return {
+                "category": "organization",
+                "confidence": 0.8,
+                "subcategory": "기업/조직",
+                "search_strategy": "기업 정보 검색",
+                "keywords": ["회사 정보", "사업", "연혁", "뉴스"]
+            }
+        elif any(re.search(pattern, query_lower) for pattern in location_patterns):
+            return {
+                "category": "location",
+                "confidence": 0.8,
+                "subcategory": "장소",
+                "search_strategy": "지역 정보 검색",
+                "keywords": ["관광", "역사", "문화", "정보"]
+            }
+        elif any(re.search(pattern, query_lower) for pattern in event_patterns):
+            return {
+                "category": "event",
+                "confidence": 0.8,
+                "subcategory": "이벤트",
+                "search_strategy": "이벤트 정보 검색",
+                "keywords": ["일정", "장소", "참가", "정보"]
+            }
+        elif any(re.search(pattern, query_lower) for pattern in object_patterns):
+            return {
+                "category": "object",
+                "confidence": 0.8,
+                "subcategory": "사물/제품",
+                "search_strategy": "제품 정보 검색",
+                "keywords": ["스펙", "가격", "리뷰", "구매"]
+            }
+        elif any(re.search(pattern, query_lower) for pattern in concept_patterns):
+            return {
+                "category": "concept",
+                "confidence": 0.8,
+                "subcategory": "추상적 개념",
+                "search_strategy": "개념 정보 검색",
+                "keywords": ["정의", "예시", "관련", "정보"]
+            }
+        else:
+            return {
+                "category": "other",
+                "confidence": 0.5,
+                "subcategory": "기타",
+                "search_strategy": "일반 정보 검색",
+                "keywords": ["정보", "뉴스", "최신", "트렌드"]
+            }
