@@ -667,7 +667,7 @@ class RAGService:
             return f"죄송합니다. 구조화된 답변 생성 중 오류가 발생했습니다: {str(e)}", [], conversation_id or str(uuid.uuid4()), error_context_info
     
     async def generate_topic_based_response(self, message: str, conversation_id: str = None, use_web_search: bool = True) -> Tuple[str, List[str], str, Dict[str, int]]:
-        """질문 분석 → 웹 검색 → 특정 대상 식별 → 주제 추출 → 주제별 웹 검색 → 구조화된 답변 생성"""
+        """질문 분석 → 초기 웹 검색 → 주제 추출 → 벡터 DB 검색 → 구조화된 답변 생성"""
         try:
             # 빈 메시지 체크
             if not message or not message.strip():
@@ -693,69 +693,50 @@ class RAGService:
             
             print(f"=== 주제 기반 답변 생성 시작 ===: {message}")
             
-            # 1단계: 질문에 대한 초기 웹 검색 수행
+            # 1단계: 질문에 대한 초기 웹 검색 수행 (10개 정도)
             initial_search_results = []
             if use_web_search:
                 print(f"1단계: 질문에 대한 초기 웹 검색 수행: {message}")
-                initial_search_results = await self.web_search.search(message, max_results=5)
+                initial_search_results = await self.web_search.search(message, max_results=10)
                 print(f"초기 검색 결과: {len(initial_search_results)}개")
+                
+                # 초기 검색 결과를 벡터 데이터베이스에 저장
+                await self._store_initial_search_results(initial_search_results, message, conversation_id)
             
             # 2단계: 검색 결과에서 특정 대상 식별 및 주제 추출
             topics = await self._extract_topics_from_question_with_context(message, initial_search_results)
             print(f"추출된 주제들: {topics}")
             
-            # 3단계: 주제별 웹 검색 및 정보 수집
+            # 3단계: 주제별 벡터 데이터베이스 검색 및 정보 수집
             topic_research_results = {}
             all_sources = []
             
-            if use_web_search and topics:
+            if topics:
                 for i, topic in enumerate(topics):
-                    print(f"주제 {i+1} 검색 중: {topic}")
+                    print(f"주제 {i+1} 벡터 검색 중: {topic}")
                     
-                    # 주제별 검색 키워드 생성
-                    search_keywords = self._generate_search_keywords(topic, message)
-                    print(f"검색 키워드: {search_keywords}")
+                    # 주제별 벡터 데이터베이스 검색 수행
+                    topic_content = await self._search_topic_in_vector_db(topic, message, conversation_id)
                     
-                    # 주제별 웹 검색 수행
-                    search_results = await self.web_search.search(search_keywords, max_results=3)
-                    
-                    # 검색 결과에서 콘텐츠 추출 및 정리
-                    topic_content = []
-                    topic_sources = []
-                    
-                    for result in search_results:
-                        if result.get('url'):
-                            try:
-                                content = await self.web_search.fetch_url_content(result['url'])
-                                if content.get('content'):
-                                    # 주제와 관련된 내용만 추출
-                                    relevant_content = self._extract_relevant_content(content['content'], topic, search_keywords)
-                                    if relevant_content:
-                                        topic_content.append({
-                                            'content': relevant_content,
-                                            'url': result['url'],
-                                            'title': content.get('title', ''),
-                                            'relevance_score': self._calculate_relevance_score(relevant_content, topic)
-                                        })
-                            except Exception as e:
-                                print(f"주제별 콘텐츠 추출 실패 {result['url']}: {e}")
-                                continue
-                    
-                    # 관련성 점수로 정렬하고, 정렬된 순서에 맞춰 sources도 함께 정리
-                    topic_content.sort(key=lambda x: x['relevance_score'], reverse=True)
-                    
-                    # 정렬된 content에서 URL을 추출하여 sources 생성
-                    sorted_sources = [item['url'] for item in topic_content[:2]]  # 상위 2개 결과만 사용
-                    
-                    topic_research_results[topic] = {
-                        'content': topic_content[:2],  # 상위 2개 결과만 사용
-                        'sources': sorted_sources
-                    }
-                    
-                    # 전체 소스 목록에도 추가
-                    all_sources.extend(sorted_sources)
-                    
-                    print(f"주제 '{topic}' 검색 완료: {len(topic_content)}개 결과, {len(sorted_sources)}개 소스")
+                    if topic_content:
+                        # 관련성 점수로 정렬
+                        topic_content.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
+                        
+                        # 상위 2개 결과만 사용
+                        top_content = topic_content[:2]
+                        topic_sources = [item['url'] for item in top_content if item.get('url')]
+                        
+                        topic_research_results[topic] = {
+                            'content': top_content,
+                            'sources': topic_sources
+                        }
+                        
+                        # 전체 소스 목록에도 추가
+                        all_sources.extend(topic_sources)
+                        
+                        print(f"주제 '{topic}' 벡터 검색 완료: {len(topic_content)}개 결과, {len(topic_sources)}개 소스")
+                    else:
+                        print(f"주제 '{topic}'에 대한 벡터 검색 결과 없음")
             
             # 4단계: 구조화된 답변 생성
             structured_response = await self._generate_topic_based_answer(message, topics, topic_research_results)
@@ -784,6 +765,90 @@ class RAGService:
                 'webSearch': 0
             }
             return f"죄송합니다. 주제 기반 답변 생성 중 오류가 발생했습니다: {str(e)}", [], conversation_id or str(uuid.uuid4()), error_context_info
+
+    async def _store_initial_search_results(self, search_results: List[Dict[str, Any]], query: str, conversation_id: str):
+        """초기 검색 결과를 벡터 데이터베이스에 저장"""
+        try:
+            print(f"초기 검색 결과를 벡터 데이터베이스에 저장 중: {len(search_results)}개 결과")
+            
+            # 대화별 콜렉션 확인/생성
+            conversation_vector_store = await self._ensure_conversation_collection(conversation_id)
+            
+            # 검색 결과에서 콘텐츠 추출 및 저장
+            for result in search_results:
+                if result.get('url'):
+                    try:
+                        # URL에서 콘텐츠 추출
+                        content = await self.web_search.fetch_url_content(result['url'])
+                        if content.get('content'):
+                            # 텍스트 분할
+                            documents = self.text_splitter.split_text(content['content'])
+                            
+                            # 벡터 스토어에 추가 (대화별 콜렉션)
+                            doc_objects = []
+                            for i, doc_text in enumerate(documents):
+                                doc_objects.append(Document(
+                                    page_content=doc_text,
+                                    metadata={
+                                        'url': result['url'],
+                                        'title': content.get('title', ''),
+                                        'chunk_index': i,
+                                        'total_chunks': len(documents),
+                                        'source_url': result['url'],
+                                        'search_query': query,
+                                        'conversation_id': conversation_id,
+                                        'timestamp': asyncio.get_event_loop().time()
+                                    }
+                                ))
+                            
+                            # 대화별 콜렉션에 저장
+                            conversation_vector_store.add_documents(doc_objects)
+                            print(f"초기 검색 결과 저장 완료: {result['url']} -> {self._get_conversation_collection_name(conversation_id)}")
+                    except Exception as e:
+                        print(f"초기 검색 결과 저장 실패 {result['url']}: {e}")
+                        continue
+            
+            print(f"초기 검색 결과 벡터 데이터베이스 저장 완료")
+            
+        except Exception as e:
+            print(f"초기 검색 결과 저장 중 오류: {e}")
+
+    async def _search_topic_in_vector_db(self, topic: str, original_query: str, conversation_id: str) -> List[Dict[str, Any]]:
+        """주제에 대해 벡터 데이터베이스에서 검색"""
+        try:
+            print(f"주제 '{topic}'에 대해 벡터 데이터베이스 검색 수행")
+            
+            # 대화별 콜렉션에서 검색
+            conversation_vector_store = await self._ensure_conversation_collection(conversation_id)
+            
+            # 주제와 원본 쿼리를 결합하여 검색
+            search_query = f"{topic} {original_query}"
+            search_results = conversation_vector_store.similarity_search(search_query, k=5)
+            
+            topic_content = []
+            for result in search_results:
+                if hasattr(result, 'page_content') and result.page_content:
+                    # 관련성 점수 계산
+                    relevance_score = self._calculate_relevance_score(result.page_content, topic)
+                    
+                    # 메타데이터에서 정보 추출
+                    metadata = getattr(result, 'metadata', {})
+                    url = metadata.get('url', '')
+                    title = metadata.get('title', '')
+                    
+                    topic_content.append({
+                        'content': result.page_content,
+                        'url': url,
+                        'title': title,
+                        'relevance_score': relevance_score
+                    })
+            
+            print(f"주제 '{topic}' 벡터 검색 완료: {len(topic_content)}개 결과")
+            return topic_content
+            
+        except Exception as e:
+            print(f"주제 '{topic}' 벡터 검색 중 오류: {e}")
+            return []
     
     async def _extract_topics_from_question(self, question: str) -> List[str]:
         """질문에서 핵심 주제들을 추출"""
