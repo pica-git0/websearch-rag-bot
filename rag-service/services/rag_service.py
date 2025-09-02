@@ -324,7 +324,8 @@ class RAGService:
                 context, 
                 short_term_count=len(short_term_context),
                 long_term_count=len(long_term_context),
-                web_search_count=len(sources)
+                web_search_count=len(sources),
+                chat_history=memory.chat_memory.messages # 대화 히스토리 전달
             )
             
             print("LLM 응답 생성 중...")
@@ -379,8 +380,19 @@ class RAGService:
         
         return "\n".join(context_parts)
     
-    def _create_prompt(self, message: str, context: str, short_term_count: int = 0, long_term_count: int = 0, web_search_count: int = 0) -> str:
-        """프롬프트 생성 - 단기기억, 장기기억, 웹검색 컨텍스트 구분"""
+    def _create_prompt(self, message: str, context: str, short_term_count: int = 0, long_term_count: int = 0, web_search_count: int = 0, chat_history: List = None) -> str:
+        """프롬프트 생성 - 대화 히스토리와 컨텍스트를 포함하여 맥락 의존적 질문 처리"""
+        
+        # 대화 히스토리 처리
+        chat_history_text = ""
+        if chat_history and len(chat_history) > 0:
+            chat_history_text = "\n=== 이전 대화 내용 ===\n"
+            for i, msg in enumerate(chat_history[-6:], 1):  # 최근 6개 메시지만 포함
+                if hasattr(msg, 'content'):
+                    role = "사용자" if hasattr(msg, 'type') and msg.type == 'human' else "AI"
+                    chat_history_text += f"{i}. {role}: {msg.content}\n"
+            chat_history_text += "==================\n"
+        
         if context:
             context_summary = f"""
 === 컨텍스트 정보 ===
@@ -391,28 +403,34 @@ class RAGService:
 
 {context}"""
             
-            prompt = f"""다음은 사용자의 질문과 관련된 정보입니다:
+            prompt = f"""당신은 사용자와 자연스럽게 대화하는 AI 어시스턴트입니다. 
+이전 대화 내용과 현재 컨텍스트를 바탕으로 사용자의 질문에 답변해주세요.
+
+{chat_history_text}
 
 {context_summary}
 
 사용자 질문: {message}
 
-위의 정보를 바탕으로 사용자의 질문에 답변해주세요. 
-
 답변 지침:
-1. 단기기억(현재 대화)의 정보를 우선적으로 활용하세요
-2. 장기기억(이전 대화 내용)의 정보를 보조적으로 활용하세요
-3. 웹검색 결과를 통해 최신 정보를 보완하세요
-4. 모든 정보를 종합하여 일관성 있고 정확한 답변을 제공하세요
-5. 정보가 충분하지 않다면 그 점을 명시하고, 가능한 한 도움이 되는 답변을 제공해주세요
-6. 한국어로 답변해주세요
-7. 답변 후에는 참고한 정보의 출처를 간단히 언급해주세요
+1. **대화 맥락 파악**: 이전 대화 내용을 먼저 확인하여 사용자가 무엇을 언급했는지 파악하세요
+2. **맥락 의존적 질문 처리**: "그거", "이것", "저것" 등의 대명사가 나오면 이전 대화에서 언급된 내용을 참고하세요
+3. **정보 우선순위**: 단기기억(현재 대화) > 장기기억(이전 대화) > 웹검색 결과 순으로 정보를 활용하세요
+4. **자연스러운 대화**: 이전 대화와 연결되는 자연스러운 답변을 제공하세요
+5. **정보 보완**: 정보가 부족하다면 웹검색을 통해 최신 정보를 보완하세요
+6. **한국어 답변**: 한국어로 친근하고 이해하기 쉽게 답변해주세요
+7. **출처 명시**: 참고한 정보의 출처를 간단히 언급해주세요
 
 답변:"""
         else:
-            prompt = f"""사용자 질문: {message}
+            prompt = f"""당신은 사용자와 자연스럽게 대화하는 AI 어시스턴트입니다.
 
-이 질문에 대해 도움이 되는 답변을 제공해주세요. 한국어로 답변해주세요."""
+{chat_history_text}
+
+사용자 질문: {message}
+
+이전 대화 내용을 참고하여 사용자의 질문에 답변해주세요. 
+대화 맥락을 유지하고 자연스럽게 대화를 이어가세요. 한국어로 답변해주세요."""
         
         return prompt
     
