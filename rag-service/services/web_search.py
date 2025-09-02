@@ -25,8 +25,7 @@ class WebSearchService:
         self.google_cse_id = os.getenv("GOOGLE_CSE_ID")
         self.google_search_url = "https://www.googleapis.com/customsearch/v1"
         
-        # DuckDuckGo API (Google API가 없을 때 대체)
-        self.duckduckgo_url = "https://api.duckduckgo.com/"
+
         
         # OpenAI API 설정
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -43,7 +42,7 @@ class WebSearchService:
         }
     
     async def search(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
-        """웹 검색 수행 - Google Custom Search API 우선, 대체로 DuckDuckGo 사용"""
+        """웹 검색 수행 - Google Custom Search API 우선, 대체로 검색 시뮬레이션 사용"""
         try:
             # 검색어 분류
             classification_result = await self.classify_search_query(query)
@@ -57,7 +56,7 @@ class WebSearchService:
                     return search_results
             elif classification_result['search_strategy'] == "동물 정보 검색":
                 print(f"동물 정보 검색 전략 사용: {query}")
-                search_results = await self._duckduckgo_search(query, max_results)
+                search_results = await self._google_search(query, max_results)
                 if search_results:
                     return search_results
             elif classification_result['search_strategy'] == "기업 정보 검색":
@@ -67,12 +66,12 @@ class WebSearchService:
                     return search_results
             elif classification_result['search_strategy'] == "지역 정보 검색":
                 print(f"지역 정보 검색 전략 사용: {query}")
-                search_results = await self._duckduckgo_search(query, max_results)
+                search_results = await self._google_search(query, max_results)
                 if search_results:
                     return search_results
             elif classification_result['search_strategy'] == "이벤트 정보 검색":
                 print(f"이벤트 정보 검색 전략 사용: {query}")
-                search_results = await self._duckduckgo_search(query, max_results)
+                search_results = await self._google_search(query, max_results)
                 if search_results:
                     return search_results
             elif classification_result['search_strategy'] == "제품 정보 검색":
@@ -82,7 +81,7 @@ class WebSearchService:
                     return search_results
             elif classification_result['search_strategy'] == "개념 정보 검색":
                 print(f"개념 정보 검색 전략 사용: {query}")
-                search_results = await self._duckduckgo_search(query, max_results)
+                search_results = await self._google_search(query, max_results)
                 if search_results:
                     return search_results
             else:
@@ -252,67 +251,7 @@ class WebSearchService:
             print(f"Google 검색 오류: {e}")
             return []
     
-    async def _duckduckgo_search(self, query: str, max_results: int) -> List[Dict[str, Any]]:
-        """DuckDuckGo API를 사용한 검색"""
-        try:
-            # DuckDuckGo Instant Answer API
-            params = {
-                'q': query,
-                'format': 'json',
-                'no_html': '1',
-                'skip_disambig': '1'
-            }
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    self.duckduckgo_url,
-                    params=params,
-                    timeout=30.0
-                )
-                response.raise_for_status()
-                
-                data = response.json()
-                
-                results = []
-                print(f"🔍 DuckDuckGo 검색 결과 URL들:")
-                
-                # 관련 주제들 추가
-                if 'RelatedTopics' in data:
-                    for i, topic in enumerate(data['RelatedTopics'][:max_results]):
-                        if 'FirstURL' in topic and 'Text' in topic:
-                            result = {
-                                'title': topic.get('Text', '')[:100],
-                                'url': topic.get('FirstURL', ''),
-                                'snippet': topic.get('Text', ''),
-                                'source': 'duckduckgo'
-                            }
-                            results.append(result)
-                            
-                            # URL을 콘솔에 출력 (개발 환경 모니터링용)
-                            print(f"  [{len(results)}] {result['url']}")
-                            print(f"      제목: {result['title'][:80]}...")
-                
-                # 추상 정보 추가
-                if 'Abstract' in data and data['Abstract']:
-                    result = {
-                        'title': data.get('Heading', query),
-                        'url': data.get('AbstractURL', ''),
-                        'snippet': data.get('Abstract', ''),
-                        'source': 'duckduckgo'
-                    }
-                    results.append(result)
-                    
-                    # URL을 콘솔에 출력 (개발 환경 모니터링용)
-                    if result['url']:
-                        print(f"  [{len(results)}] {result['url']}")
-                        print(f"      제목: {result['title'][:80]}...")
-                
-                print(f"✅ DuckDuckGo 검색 완료: 총 {len(results)}개 결과")
-                return results[:max_results]
-                
-        except Exception as e:
-            print(f"DuckDuckGo 검색 오류: {e}")
-            return []
+
     
     async def _simulate_search(self, query: str, max_results: int) -> List[Dict[str, Any]]:
         """검색 시뮬레이션 (모든 API가 실패한 경우)"""
@@ -448,8 +387,8 @@ class WebSearchService:
             # Google API 키 확인
             if self.google_api_key and self.google_cse_id:
                 return True
-            # DuckDuckGo API 확인
-            return True
+            # Google API가 없으면 시뮬레이션 사용
+            return False
         except Exception:
             return False
     
