@@ -174,13 +174,25 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
     <div className="flex-1 flex flex-col h-full">
       {/* 메시지 목록 */}
       <div className="messages-container p-4 min-h-0">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+        <MessageList messages={messages} />
+        
+        {/* 로딩 상태 표시 */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-6 mt-4 bg-gray-50 rounded-lg border border-gray-200">
+            <div className="flex items-center space-x-3 text-gray-600">
+              <div className="loading-spinner h-5 w-5"></div>
+              <div className="flex flex-col items-start">
+                <span className="text-sm font-medium">AI가 응답을 생성하고 있습니다</span>
+                <div className="loading-dots mt-1">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              </div>
+            </div>
           </div>
-        ) : (
-          <MessageList messages={messages} />
         )}
+        
         <div ref={messagesEndRef} />
       </div>
 
