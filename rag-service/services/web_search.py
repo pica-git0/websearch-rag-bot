@@ -113,7 +113,7 @@ class WebSearchService:
                 """
                 
                 response = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
+                    model="gpt-4o-mini",
                     messages=[
                         {"role": "system", "content": "당신은 검색어 최적화 전문가입니다. 검색어를 웹 검색에 적합한 일반적인 키워드로 변환합니다."},
                         {"role": "user", "content": prompt}
