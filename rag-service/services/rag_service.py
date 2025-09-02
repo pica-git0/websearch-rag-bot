@@ -25,7 +25,7 @@ class RAGService:
         if self.openai_api_key:
             self.llm = ChatOpenAI(
                 temperature=0.7,
-                model="gpt-3.5-turbo"
+                model="gpt-4o-mini"
             )
         else:
             # OpenAI API 키가 없을 경우 대체 LLM 사용
@@ -662,6 +662,335 @@ class RAGService:
                 'webSearch': 0
             }
             return f"죄송합니다. 구조화된 답변 생성 중 오류가 발생했습니다: {str(e)}", [], conversation_id or str(uuid.uuid4()), error_context_info
+    
+    async def generate_topic_based_response(self, message: str, conversation_id: str = None, use_web_search: bool = True) -> Tuple[str, List[str], str, Dict[str, int]]:
+        """질문 분석 → 주제 추출 → 주제별 웹 검색 → 구조화된 답변 생성"""
+        try:
+            # 빈 메시지 체크
+            if not message or not message.strip():
+                empty_context_info = {
+                    'shortTermMemory': 0,
+                    'longTermMemory': 0,
+                    'webSearch': 0
+                }
+                return "검색어가 없습니다. 구체적인 질문이나 검색하고 싶은 내용을 입력해주세요.", [], conversation_id or str(uuid.uuid4()), empty_context_info
+            
+            # 대화 ID 생성
+            if not conversation_id:
+                conversation_id = str(uuid.uuid4())
+            
+            # 대화 메모리 초기화
+            if conversation_id not in self.conversation_memories:
+                self.conversation_memories[conversation_id] = ConversationBufferMemory(
+                    memory_key="chat_history",
+                    return_messages=True
+                )
+            
+            memory = self.conversation_memories[conversation_id]
+            
+            print(f"=== 주제 기반 답변 생성 시작 ===: {message}")
+            
+            # 1단계: 질문 분석 및 주제 추출
+            topics = await self._extract_topics_from_question(message)
+            print(f"추출된 주제들: {topics}")
+            
+            # 2단계: 주제별 웹 검색 및 정보 수집
+            topic_research_results = {}
+            all_sources = []
+            
+            if use_web_search and topics:
+                for i, topic in enumerate(topics):
+                    print(f"주제 {i+1} 검색 중: {topic}")
+                    
+                    # 주제별 검색 키워드 생성
+                    search_keywords = self._generate_search_keywords(topic, message)
+                    print(f"검색 키워드: {search_keywords}")
+                    
+                    # 주제별 웹 검색 수행
+                    search_results = await self.web_search.search(search_keywords, max_results=3)
+                    
+                    # 검색 결과에서 콘텐츠 추출 및 정리
+                    topic_content = []
+                    topic_sources = []
+                    
+                    for result in search_results:
+                        if result.get('url'):
+                            try:
+                                content = await self.web_search.fetch_url_content(result['url'])
+                                if content.get('content'):
+                                    # 주제와 관련된 내용만 추출
+                                    relevant_content = self._extract_relevant_content(content['content'], topic, search_keywords)
+                                    if relevant_content:
+                                        topic_content.append({
+                                            'content': relevant_content,
+                                            'url': result['url'],
+                                            'title': content.get('title', ''),
+                                            'relevance_score': self._calculate_relevance_score(relevant_content, topic)
+                                        })
+                                        topic_sources.append(result['url'])
+                                        all_sources.append(result['url'])
+                            except Exception as e:
+                                print(f"주제별 콘텐츠 추출 실패 {result['url']}: {e}")
+                                continue
+                    
+                    # 관련성 점수로 정렬
+                    topic_content.sort(key=lambda x: x['relevance_score'], reverse=True)
+                    
+                    topic_research_results[topic] = {
+                        'content': topic_content[:2],  # 상위 2개 결과만 사용
+                        'sources': topic_sources[:2]
+                    }
+                    
+                    print(f"주제 '{topic}' 검색 완료: {len(topic_content)}개 결과, {len(topic_sources)}개 소스")
+            
+            # 3단계: 구조화된 답변 생성
+            structured_response = await self._generate_topic_based_answer(message, topics, topic_research_results)
+            
+            # 대화 메모리에 저장
+            memory.chat_memory.add_user_message(message)
+            memory.chat_memory.add_ai_message(structured_response)
+            
+            # 현재 대화를 장기기억에 저장
+            await self._save_to_long_term_memory(conversation_id, message, structured_response, all_sources)
+            
+            # 컨텍스트 정보 생성
+            context_info = {
+                'shortTermMemory': 0,  # 주제 기반 답변은 새로운 검색 결과에 의존
+                'longTermMemory': 0,
+                'webSearch': len(all_sources)
+            }
+            
+            return structured_response, all_sources, conversation_id, context_info
+            
+        except Exception as e:
+            print(f"주제 기반 답변 생성 오류: {e}")
+            error_context_info = {
+                'shortTermMemory': 0,
+                'longTermMemory': 0,
+                'webSearch': 0
+            }
+            return f"죄송합니다. 주제 기반 답변 생성 중 오류가 발생했습니다: {str(e)}", [], conversation_id or str(uuid.uuid4()), error_context_info
+    
+    async def _extract_topics_from_question(self, question: str) -> List[str]:
+        """질문에서 핵심 주제들을 추출"""
+        try:
+            # 주제 추출을 위한 프롬프트 생성
+            topic_extraction_prompt = f"""
+당신은 사용자의 질문을 분석하여 핵심 주제들을 추출하는 전문가입니다.
+
+사용자 질문: {question}
+
+다음 지침에 따라 3-4개의 핵심 주제를 추출해주세요:
+
+1. **질문의 핵심 의도 파악**: 사용자가 무엇을 알고 싶어하는지 파악
+2. **주제 분류**: 관련된 개념들을 논리적으로 그룹화
+3. **검색 가능한 주제**: 각 주제가 독립적으로 웹 검색 가능해야 함
+4. **사람들이 궁금해할 만한 주제**: 일반적으로 관심을 가질 만한 주제
+
+출력 형식:
+- 주제1: [구체적인 주제명]
+    
+- 주제2: [구체적인 주제명]
+
+- 주제3: [구체적인 주제명]
+
+- 주제4: [구체적인 주제명] (필요한 경우)
+
+예시:
+질문: "라부부 말차는 왜 이렇게 떴어?"
+주제들:
+- 라부부 아트토이의 인기 요인
+
+- 말차 음료/디저트의 트렌드
+
+- MZ세대의 소비 패턴 변화
+
+- SNS와 셀럽의 영향
+
+답변:"""
+
+            # LLM을 사용하여 주제 추출
+            if hasattr(self.llm, 'invoke'):
+                response = self.llm.invoke(topic_extraction_prompt)
+                if hasattr(response, 'content'):
+                    response_text = response.content
+                else:
+                    response_text = str(response)
+            else:
+                response_text = self.llm(topic_extraction_prompt)
+            
+            # 응답에서 주제들 추출
+            topics = self._parse_topics_from_response(response_text)
+            print(f"LLM 응답: {response_text}")
+            print(f"파싱된 주제들: {topics}")
+            
+            return topics[:4]  # 최대 4개 주제
+            
+        except Exception as e:
+            print(f"주제 추출 실패: {e}")
+            # 기본 주제 생성
+            return [question]
+    
+    def _parse_topics_from_response(self, response: str) -> List[str]:
+        """LLM 응답에서 주제들을 파싱"""
+        topics = []
+        lines = response.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if line.startswith('-') or line.startswith('•') or line.startswith('*'):
+                # 불릿 포인트 제거
+                topic = line[1:].strip()
+                if topic and len(topic) > 3:
+                    topics.append(topic)
+            elif ':' in line and not line.startswith('질문'):
+                # 콜론이 있는 줄에서 주제 추출
+                parts = line.split(':', 1)
+                if len(parts) == 2:
+                    topic = parts[1].strip()
+                    if topic and len(topic) > 3:
+                        topics.append(topic)
+        
+        # 주제가 없으면 기본값 반환
+        if not topics:
+            topics = ["일반적인 정보", "구체적인 사례", "전망 및 분석"]
+        
+        return topics
+    
+    def _generate_search_keywords(self, topic: str, original_question: str) -> str:
+        """주제별 검색 키워드 생성"""
+        # 주제와 원본 질문을 조합하여 검색 키워드 생성
+        keywords = f"{topic} {original_question}"
+        
+        # 한국어 키워드 최적화
+        if any(char in topic for char in '가나다라마바사아자차카타파하'):
+            # 한국어 주제인 경우 영어 키워드 추가
+            keywords += " 한국 트렌드 최신 정보"
+        else:
+            # 영어 주제인 경우 한국어 키워드 추가
+            keywords += " 한국 국내 현황 최신 소식"
+        
+        return keywords
+    
+    def _extract_relevant_content(self, content: str, topic: str, keywords: str) -> str:
+        """주제와 관련된 내용만 추출"""
+        # 간단한 키워드 매칭으로 관련성 높은 내용 추출
+        relevant_sentences = []
+        sentences = content.split('.')
+        
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if len(sentence) > 20:  # 너무 짧은 문장 제외
+                # 주제나 키워드가 포함된 문장 찾기
+                if any(keyword.lower() in sentence.lower() for keyword in keywords.split()):
+                    relevant_sentences.append(sentence)
+        
+        if relevant_sentences:
+            return '. '.join(relevant_sentences[:3])  # 상위 3개 문장만 반환
+        else:
+            # 관련 문장이 없으면 처음 200자 반환
+            return content[:200] + "..." if len(content) > 200 else content
+    
+    def _calculate_relevance_score(self, content: str, topic: str) -> float:
+        """콘텐츠와 주제의 관련성 점수 계산"""
+        score = 0.0
+        
+        # 주제 키워드가 포함된 정도
+        topic_words = topic.lower().split()
+        content_lower = content.lower()
+        
+        for word in topic_words:
+            if len(word) > 2:  # 2글자 이하 단어 제외
+                score += content_lower.count(word) * 0.1
+        
+        # 콘텐츠 길이에 따른 보정
+        if len(content) > 100:
+            score += 0.5
+        
+        return score
+    
+    async def _generate_topic_based_answer(self, question: str, topics: List[str], research_results: Dict) -> str:
+        """주제별 연구 결과를 바탕으로 구조화된 답변 생성"""
+        try:
+            # 답변 생성을 위한 프롬프트 생성
+            answer_prompt = f"""
+당신은 사용자의 질문에 대해 주제별로 체계적인 답변을 제공하는 전문가입니다.
+
+사용자 질문: {question}
+
+추출된 주제들:
+{chr(10).join([f"- {topic}" for topic in topics])}
+
+주제별 연구 결과:
+{self._format_research_results(research_results)}
+
+다음 형식으로 구조화된 답변을 생성해주세요:
+
+## 📋 핵심 요약
+[질문의 핵심을 2-3문장으로 요약]
+
+## 🔍 주제별 상세 분석
+
+### [주제1]
+- [해당 주제에 대한 상세한 설명과 분석]
+
+참고: [URL1], [URL2]
+
+### [주제2]
+- [해당 주제에 대한 상세한 설명과 분석]
+
+참고: [URL1], [URL2]
+
+### [주제3]
+- [해당 주제에 대한 상세한 설명과 분석]
+
+참고: [URL1], [URL2]
+
+## 💡 결론 및 인사이트
+[전체적인 결론과 향후 전망, 주목할 점]
+
+답변 시 다음 사항을 준수하세요:
+- 각 주제별로 구체적이고 유용한 정보 제공
+- 참조 URL을 명확하게 표시
+- 사용자 친화적이고 이해하기 쉬운 언어 사용
+- 논리적 구조와 흐름 유지
+- 불릿 포인트(•) 활용하여 가독성 향상
+- 마크다운 문법에 따른 구조 정리
+- 한국어로 답변
+
+답변:"""
+
+            # LLM을 사용하여 답변 생성
+            if hasattr(self.llm, 'invoke'):
+                response = self.llm.invoke(answer_prompt)
+                if hasattr(response, 'content'):
+                    return response.content
+                else:
+                    return str(response)
+            else:
+                return self.llm(answer_prompt)
+                
+        except Exception as e:
+            print(f"주제별 답변 생성 실패: {e}")
+            return f"죄송합니다. 주제별 답변 생성 중 오류가 발생했습니다: {str(e)}"
+    
+    def _format_research_results(self, research_results: Dict) -> str:
+        """연구 결과를 프롬프트용으로 포맷팅"""
+        formatted = ""
+        
+        for topic, data in research_results.items():
+            formatted += f"\n### {topic}\n"
+            
+            if data['content']:
+                for i, content_item in enumerate(data['content']):
+                    formatted += f"내용 {i+1}: {content_item['content'][:300]}...\n"
+                    formatted += f"URL {i+1}: {content_item['url']}\n"
+            else:
+                formatted += "관련 정보를 찾을 수 없습니다.\n"
+            
+            formatted += f"소스: {', '.join(data['sources'])}\n"
+        
+        return formatted
     
     async def _save_to_long_term_memory(self, conversation_id: str, user_message: str, ai_response: str, sources: List[str]) -> None:
         """현재 대화를 장기기억에 저장 (대화별 분리)"""

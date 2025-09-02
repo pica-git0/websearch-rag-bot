@@ -66,6 +66,18 @@ class StructuredChatResponse(BaseModel):
     conversation_id: str
     context_info: Optional[Dict[str, int]] = None
 
+class TopicBasedChatRequest(BaseModel):
+    message: str
+    conversation_id: Optional[str] = None
+    use_web_search: bool = True
+    search_results: Optional[List[str]] = None
+
+class TopicBasedChatResponse(BaseModel):
+    response: str
+    sources: List[str]
+    conversation_id: str
+    context_info: Optional[Dict[str, int]] = None
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     """요청 로깅 미들웨어"""
@@ -148,7 +160,7 @@ async def chat_structured(request: StructuredChatRequest):
             use_web_search=request.use_web_search
         )
         
-        response, sources, conversation_id, context_info = await rag_service.generate_structured_response(
+        response, sources, conversation_id, context_info = await rag_service.generate_topic_based_response(
             request.message, 
             request.conversation_id,
             request.use_web_search
@@ -172,6 +184,47 @@ async def chat_structured(request: StructuredChatRequest):
         duration = time.time() - start_time
         logging_service.log_error(e, {
             "endpoint": "/chat/structured",
+            "message": request.message,
+            "duration": duration
+        })
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/chat/topic-based", response_model=TopicBasedChatResponse)
+async def chat_topic_based(request: TopicBasedChatRequest):
+    start_time = time.time()
+    
+    try:
+        logging_service.log_application_event(
+            "topic_based_chat_request", 
+            "Topic-based chat request received", 
+            message_length=len(request.message),
+            use_web_search=request.use_web_search
+        )
+        
+        response, sources, conversation_id, context_info = await rag_service.generate_topic_based_response(
+            request.message, 
+            request.conversation_id,
+            request.use_web_search
+        )
+        
+        duration = time.time() - start_time
+        logging_service.log_performance(
+            "topic_based_chat_processing", 
+            duration,
+            message_length=len(request.message),
+            sources_count=len(sources)
+        )
+        
+        return TopicBasedChatResponse(
+            response=response,
+            sources=sources,
+            conversation_id=conversation_id,
+            context_info=context_info
+        )
+    except Exception as e:
+        duration = time.time() - start_time
+        logging_service.log_error(e, {
+            "endpoint": "/chat/topic-based",
             "message": request.message,
             "duration": duration
         })
