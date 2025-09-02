@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 import os
 from dotenv import load_dotenv
 
@@ -44,6 +44,7 @@ class ChatResponse(BaseModel):
     response: str
     sources: List[str]
     conversation_id: str
+    context_info: Optional[Dict[str, int]] = None
 
 class SearchRequest(BaseModel):
     query: str
@@ -94,7 +95,7 @@ async def chat(request: ChatRequest):
             use_web_search=request.use_web_search
         )
         
-        response, sources, conversation_id = await rag_service.chat(
+        response, sources, conversation_id, context_info = await rag_service.chat(
             request.message, 
             request.conversation_id,
             request.use_web_search
@@ -111,7 +112,8 @@ async def chat(request: ChatRequest):
         return ChatResponse(
             response=response,
             sources=sources,
-            conversation_id=conversation_id
+            conversation_id=conversation_id,
+            context_info=context_info
         )
     except Exception as e:
         duration = time.time() - start_time

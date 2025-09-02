@@ -147,12 +147,17 @@ class RAGService:
         
         return self.conversation_vector_stores[collection_name]
     
-    async def chat(self, message: str, conversation_id: str = None, use_web_search: bool = True) -> Tuple[str, List[str], str]:
+    async def chat(self, message: str, conversation_id: str = None, use_web_search: bool = True) -> Tuple[str, List[str], str, Dict[str, int]]:
         """챗봇 대화 처리 - 대화별 콜렉션에 저장"""
         try:
             # 빈 메시지 체크
             if not message or not message.strip():
-                return "검색어가 없습니다. 구체적인 질문이나 검색하고 싶은 내용을 입력해주세요.", [], conversation_id or str(uuid.uuid4())
+                empty_context_info = {
+                    'shortTermMemory': 0,
+                    'longTermMemory': 0,
+                    'webSearch': 0
+                }
+                return "검색어가 없습니다. 구체적인 질문이나 검색하고 싶은 내용을 입력해주세요.", [], conversation_id or str(uuid.uuid4()), empty_context_info
             
             # 대화 ID 생성
             if not conversation_id:
@@ -289,12 +294,24 @@ class RAGService:
             # 6단계: 현재 대화를 장기기억에 저장
             await self._save_to_long_term_memory(conversation_id, message, response, sources)
             
-            print(f"응답 생성 완료. 소스 수: {len(sources)}")
-            return response, sources, conversation_id
+            # 컨텍스트 정보 생성
+            context_info = {
+                'shortTermMemory': len(short_term_context),
+                'longTermMemory': len(long_term_context),
+                'webSearch': len(sources)
+            }
+            
+            print(f"응답 생성 완료. 소스 수: {len(sources)}, 컨텍스트: {context_info}")
+            return response, sources, conversation_id, context_info
             
         except Exception as e:
             print(f"Error in chat: {e}")
-            return f"죄송합니다. 오류가 발생했습니다: {str(e)}", [], conversation_id or str(uuid.uuid4())
+            error_context_info = {
+                'shortTermMemory': 0,
+                'longTermMemory': 0,
+                'webSearch': 0
+            }
+            return f"죄송합니다. 오류가 발생했습니다: {str(e)}", [], conversation_id or str(uuid.uuid4()), error_context_info
     
     def _create_context(self, documents: List[Document]) -> str:
         """문서들로부터 컨텍스트 생성"""
