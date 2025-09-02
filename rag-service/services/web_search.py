@@ -44,49 +44,16 @@ class WebSearchService:
     async def search(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
         """웹 검색 수행 - Google Custom Search API 우선, 대체로 검색 시뮬레이션 사용"""
         try:
-            # 검색어 분류
-            classification_result = await self.classify_search_query(query)
-            print(f"검색어 분류 결과: {classification_result}")
+            # Google Custom Search API 사용 시도
+            if self.google_api_key and self.google_cse_id:
+                print(f"Google Custom Search API 사용: {query}")
+                search_results = await self._google_search(query, max_results)
+                if search_results:
+                    return search_results
             
-            # 분류 결과에 따라 검색 전략 선택
-            if classification_result['search_strategy'] == "인물 정보 검색":
-                print(f"인물 정보 검색 전략 사용: {query}")
-                search_results = await self._google_search(query, max_results)
-                if search_results:
-                    return search_results
-            elif classification_result['search_strategy'] == "동물 정보 검색":
-                print(f"동물 정보 검색 전략 사용: {query}")
-                search_results = await self._google_search(query, max_results)
-                if search_results:
-                    return search_results
-            elif classification_result['search_strategy'] == "기업 정보 검색":
-                print(f"기업 정보 검색 전략 사용: {query}")
-                search_results = await self._google_search(query, max_results)
-                if search_results:
-                    return search_results
-            elif classification_result['search_strategy'] == "지역 정보 검색":
-                print(f"지역 정보 검색 전략 사용: {query}")
-                search_results = await self._google_search(query, max_results)
-                if search_results:
-                    return search_results
-            elif classification_result['search_strategy'] == "이벤트 정보 검색":
-                print(f"이벤트 정보 검색 전략 사용: {query}")
-                search_results = await self._google_search(query, max_results)
-                if search_results:
-                    return search_results
-            elif classification_result['search_strategy'] == "제품 정보 검색":
-                print(f"제품 정보 검색 전략 사용: {query}")
-                search_results = await self._google_search(query, max_results)
-                if search_results:
-                    return search_results
-            elif classification_result['search_strategy'] == "개념 정보 검색":
-                print(f"개념 정보 검색 전략 사용: {query}")
-                search_results = await self._google_search(query, max_results)
-                if search_results:
-                    return search_results
-            else:
-                print(f"기본 검색 전략 사용: {query}")
-                return await self._simulate_search(query, max_results)
+            # Google API가 없거나 실패한 경우 검색 시뮬레이션 사용
+            print(f"검색 시뮬레이션 사용: {query}")
+            return await self._simulate_search(query, max_results)
             
         except Exception as e:
             print(f"Error in web search: {e}")
