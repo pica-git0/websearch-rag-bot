@@ -73,6 +73,14 @@ class WebSearchService:
         # 연속된 공백을 하나로
         cleaned_query = re.sub(r'\s+', ' ', cleaned_query).strip()
         
+        # 검색어가 너무 길면 핵심 키워드만 추출
+        if len(cleaned_query) > 50:
+            # 한국어 단어들을 추출하고 상위 3-4개만 사용
+            korean_words = re.findall(r'[가-힣]{2,}', cleaned_query)
+            if len(korean_words) > 3:
+                cleaned_query = ' '.join(korean_words[:3])
+                print(f"검색어 길이 제한: '{query}' -> '{cleaned_query}'")
+        
         # 한국어 키워드가 있으면 영어 키워드 추가
         english_keywords = []
         for korean_word, english_list in self.query_mappings.items():
@@ -112,7 +120,11 @@ class WebSearchService:
                 변환된 키워드만 출력하세요 (설명 없이):
                 """
                 
-                response = openai.ChatCompletion.create(
+                # 최신 OpenAI API 사용
+                from openai import OpenAI
+                client = OpenAI(api_key=self.openai_api_key)
+                
+                response = client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[
                         {"role": "system", "content": "당신은 검색어 최적화 전문가입니다. 검색어를 웹 검색에 적합한 일반적인 키워드로 변환합니다."},
@@ -145,6 +157,14 @@ class WebSearchService:
             return fallback_query
         
         # 한국어 키워드가 없으면 일반적인 검색어로
+        # 원본 검색어에서 핵심 단어 추출 시도
+        core_words = re.findall(r'[가-힣]{2,}', query)
+        if core_words:
+            # 상위 2개 단어만 사용
+            fallback_query = ' '.join(core_words[:2])
+            print(f"핵심 단어 추출: '{query}' -> '{fallback_query}'")
+            return fallback_query
+        
         return "AI artificial intelligence"
     
     async def _google_search(self, query: str, max_results: int) -> List[Dict[str, Any]]:
