@@ -1036,14 +1036,6 @@ class RAGService:
         # 주제와 핵심 속성을 결합하여 검색 키워드 생성
         keywords = f"{topic} {core_attributes}"
         
-        # 한국어 키워드 최적화
-        if any(char in topic for char in '가나다라마바사아자차카타파하'):
-            # 한국어 주제인 경우 영어 키워드 추가
-            keywords += " 한국 트렌드 최신 정보"
-        else:
-            # 영어 주제인 경우 한국어 키워드 추가
-            keywords += " 한국 국내 현황 최신 소식"
-        
         print(f"주제 '{topic}' 검색 키워드 생성: '{keywords}' (핵심 속성: {core_attributes})")
         return keywords
     
