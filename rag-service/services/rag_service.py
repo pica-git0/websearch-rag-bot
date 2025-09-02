@@ -147,6 +147,51 @@ class RAGService:
         
         return self.conversation_vector_stores[collection_name]
     
+    def _should_use_web_search(self, message: str) -> bool:
+        """메시지 내용을 분석하여 웹 검색이 필요한지 판단"""
+        message_lower = message.lower()
+        
+        # 웹 검색이 필요한 키워드들
+        web_search_keywords = [
+            '최신', '최근', '현재', '오늘', '어제', '이번 주', '이번 달', '올해',
+            '검색', '찾아', '찾기', '검색해', '검색해줘', '검색해주세요',
+            '뉴스', '소식', '정보', '업데이트', '변경사항', '새로운',
+            '가격', '시세', '환율', '주식', '날씨', '교통', '지도',
+            '위치', '주소', '전화번호', '영업시간', '리뷰', '평점',
+            '비교', '추천', '랭킹', '순위', '인기', '트렌드',
+            '사실', '진실', '확인', '검증', '정확한', '정확히',
+            '언제', '어디서', '누가', '무엇을', '어떻게', '왜',
+            '도구', 'tool', 'search', 'find', 'latest', 'current', 'recent',
+            'news', 'information', 'update', 'price', 'weather', 'location'
+        ]
+        
+        # 한국어와 영어 키워드 모두 확인
+        for keyword in web_search_keywords:
+            if keyword in message_lower:
+                return True
+        
+        # 특정 질문 패턴 확인
+        question_patterns = [
+            '무엇', '뭐', '어떤', '어떻게', '왜', '언제', '어디서', '누가',
+            'what', 'how', 'why', 'when', 'where', 'who', 'which'
+        ]
+        
+        for pattern in question_patterns:
+            if pattern in message_lower:
+                return True
+        
+        # 명령형 표현 확인
+        command_patterns = [
+            '검색해', '찾아', '알려', '보여', '가져와', '가져와줘',
+            'search', 'find', 'show', 'tell', 'get', 'bring'
+        ]
+        
+        for pattern in command_patterns:
+            if pattern in message_lower:
+                return True
+        
+        return False
+
     async def chat(self, message: str, conversation_id: str = None, use_web_search: bool = True) -> Tuple[str, List[str], str, Dict[str, int]]:
         """챗봇 대화 처리 - 대화별 콜렉션에 저장"""
         try:
@@ -175,9 +220,12 @@ class RAGService:
             # 대화별 콜렉션 확인/생성
             conversation_vector_store = await self._ensure_conversation_collection(conversation_id)
             
-            # 1단계: 웹 검색 수행 (필요한 경우)
+            # 웹 검색 필요성 판단
+            should_search = use_web_search and self._should_use_web_search(message)
+            
+            # 1단계: 웹 검색 수행 (필요한 경우에만)
             sources = []
-            if use_web_search:
+            if should_search:
                 print(f"웹 검색 수행 중: {message}")
                 search_results = await self.web_search.search(message, max_results=5)
                 
@@ -215,6 +263,8 @@ class RAGService:
                         except Exception as e:
                             print(f"URL 인덱싱 실패 {result['url']}: {e}")
                             continue
+            else:
+                print(f"웹 검색 건너뛰기: {message} (로컬 메모리만 사용)")
             
             # 3단계: 단기기억 → 장기기억 → 웹검색 순으로 컨텍스트 수집
             print(f"컨텍스트 수집 중: {message}")
@@ -301,17 +351,16 @@ class RAGService:
                 'webSearch': len(sources)
             }
             
-            print(f"응답 생성 완료. 소스 수: {len(sources)}, 컨텍스트: {context_info}")
             return response, sources, conversation_id, context_info
             
         except Exception as e:
-            print(f"Error in chat: {e}")
+            print(f"챗봇 처리 오류: {e}")
             error_context_info = {
                 'shortTermMemory': 0,
                 'longTermMemory': 0,
                 'webSearch': 0
             }
-            return f"죄송합니다. 오류가 발생했습니다: {str(e)}", [], conversation_id or str(uuid.uuid4()), error_context_info
+            return f"죄송합니다. 처리 중 오류가 발생했습니다: {str(e)}", [], conversation_id or str(uuid.uuid4()), error_context_info
     
     def _create_context(self, documents: List[Document]) -> str:
         """문서들로부터 컨텍스트 생성"""
