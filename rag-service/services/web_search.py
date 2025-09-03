@@ -371,7 +371,7 @@ class WebSearchService:
             if search_results:
                 context_info = self._extract_context_from_search_results(search_results)
                 classification_prompt = f"""
-다음 검색어와 웹 검색 결과를 종합적으로 분석하여 분류해주세요:
+당신은 검색어 분류 전문가입니다. 다음 검색어와 웹 검색 결과를 종합적으로 분석하여 정확하게 분류해주세요.
 
 검색어: "{query}"
 
@@ -388,21 +388,24 @@ class WebSearchService:
 7. 이벤트 (event): 행사, 축제, 경기, 회의
 8. 기타 (other): 위 카테고리에 속하지 않는 것
 
-웹 검색 결과를 바탕으로 더 정확한 분류를 제공하세요.
-분류 결과를 JSON 형식으로 출력하세요:
+중요: 반드시 유효한 JSON 형식으로만 응답하세요. 다른 텍스트나 설명을 포함하지 마세요.
+응답은 오직 다음 JSON 형식이어야 합니다:
+
 {{
     "category": "카테고리명",
     "confidence": 0.95,
     "subcategory": "세부분류",
     "search_strategy": "검색 전략",
-    "keywords": ["추가 키워드1", "추가 키워드2"],
+    "keywords": ["키워드1", "키워드2"],
     "context_insights": "웹 검색 결과에서 발견된 주요 인사이트"
 }}
+
+카테고리는 위의 8개 중 하나를 선택하고, confidence는 0.0에서 1.0 사이의 숫자로 입력하세요.
 """
             else:
                 # 웹 검색 컨텍스트가 없는 경우 기본 분류
                 classification_prompt = f"""
-다음 검색어를 분석하여 분류해주세요:
+당신은 검색어 분류 전문가입니다. 다음 검색어를 분석하여 정확하게 분류해주세요.
 
 검색어: "{query}"
 
@@ -416,14 +419,18 @@ class WebSearchService:
 7. 이벤트 (event): 행사, 축제, 경기, 회의
 8. 기타 (other): 위 카테고리에 속하지 않는 것
 
-분류 결과를 JSON 형식으로 출력하세요:
+중요: 반드시 유효한 JSON 형식으로만 응답하세요. 다른 텍스트나 설명을 포함하지 마세요.
+응답은 오직 다음 JSON 형식이어야 합니다:
+
 {{
     "category": "카테고리명",
     "confidence": 0.95,
     "subcategory": "세부분류",
     "search_strategy": "검색 전략",
-    "keywords": ["추가 키워드1", "추가 키워드2"]
+    "keywords": ["키워드1", "키워드2"]
 }}
+
+카테고리는 위의 8개 중 하나를 선택하고, confidence는 0.0에서 1.0 사이의 숫자로 입력하세요.
 """
 
             # OpenAI API를 사용하여 분류
@@ -444,17 +451,18 @@ class WebSearchService:
                     
                     if response.choices and response.choices[0].message:
                         result_text = response.choices[0].message.content.strip()
+                        print(f"🔍 GPT 응답 원본: {result_text}")
+                        
                         # JSON 파싱 시도
-                        try:
-                            import json
-                            classification = json.loads(result_text)
+                        classification = self._parse_classification_response(result_text)
+                        if classification:
                             if search_results:
                                 print(f"🔍 컨텍스트 기반 검색어 분류 결과: {query} -> {classification['category']} (신뢰도: {classification['confidence']})")
                             else:
                                 print(f"🔍 기본 검색어 분류 결과: {query} -> {classification['category']} (신뢰도: {classification['confidence']})")
                             return classification
-                        except json.JSONDecodeError:
-                            print(f"JSON 파싱 실패, 기본 분류 사용: {result_text}")
+                        else:
+                            print(f"JSON 파싱 실패, 기본 분류 사용")
                 
                 except Exception as e:
                     print(f"GPT 분류 실패: {e}, 기본 분류 사용")
@@ -464,6 +472,80 @@ class WebSearchService:
         
         # 기본 분류 (GPT API 실패 시)
         return self._basic_query_classification(query)
+
+    def _parse_classification_response(self, response_text: str) -> Dict[str, Any]:
+        """GPT 응답에서 분류 결과를 파싱하고 정제"""
+        try:
+            import json
+            import re
+            
+            # 1차 시도: 직접 JSON 파싱
+            try:
+                return json.loads(response_text)
+            except json.JSONDecodeError:
+                pass
+            
+            # 2차 시도: JSON 블록 추출
+            json_pattern = r'\{[^{}]*"[^"]*"[^{}]*\}'
+            json_matches = re.findall(json_pattern, response_text)
+            
+            for match in json_matches:
+                try:
+                    # 중괄호가 균형을 이루는지 확인
+                    if match.count('{') == match.count('}'):
+                        return json.loads(match)
+                except json.JSONDecodeError:
+                    continue
+            
+            # 3차 시도: 더 넓은 범위로 JSON 추출
+            start_idx = response_text.find('{')
+            end_idx = response_text.rfind('}')
+            
+            if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
+                json_text = response_text[start_idx:end_idx + 1]
+                try:
+                    return json.loads(json_text)
+                except json.JSONDecodeError:
+                    pass
+            
+            # 4차 시도: 응답 정제 후 재시도
+            cleaned_text = self._clean_response_for_json(response_text)
+            try:
+                return json.loads(cleaned_text)
+            except json.JSONDecodeError:
+                pass
+            
+            print(f"모든 JSON 파싱 시도 실패: {response_text}")
+            return None
+            
+        except Exception as e:
+            print(f"응답 파싱 중 오류: {e}")
+            return None
+
+    def _clean_response_for_json(self, text: str) -> str:
+        """JSON 파싱을 위해 응답 텍스트 정제"""
+        import re
+        
+        # 불필요한 텍스트 제거
+        text = re.sub(r'^.*?\{', '{', text, flags=re.DOTALL)  # 시작 부분 제거
+        text = re.sub(r'\}.*?$', '}', text, flags=re.DOTALL)  # 끝 부분 제거
+        
+        # 마크다운 코드 블록 제거
+        text = re.sub(r'```json\s*', '', text)
+        text = re.sub(r'```\s*$', '', text)
+        
+        # 줄바꿈과 공백 정리
+        text = re.sub(r'\n\s*', ' ', text)
+        text = re.sub(r'\s+', ' ', text)
+        
+        # 따옴표 정리
+        text = re.sub(r'["""]', '"', text)  # 다양한 따옴표를 표준 따옴표로
+        text = re.sub(r"[''']", "'", text)  # 다양한 아포스트로피를 표준으로
+        
+        # JSON 키 정리
+        text = re.sub(r'(\w+):', r'"\1":', text)  # 따옴표 없는 키에 따옴표 추가
+        
+        return text.strip()
     
     def _basic_query_classification(self, query: str) -> Dict[str, Any]:
         """기본 규칙 기반 검색어 분류"""
