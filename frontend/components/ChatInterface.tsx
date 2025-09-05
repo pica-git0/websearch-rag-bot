@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { PaperAirplaneIcon } from '@heroicons/react/24/outline'
-import { useMutation, useLazyQuery } from '@apollo/client'
+import { useMutation, useLazyQuery, useQuery } from '@apollo/client'
 import { MessageList } from './MessageList'
 import { MessageInput } from './MessageInput'
-import { SEARCH_WEB, SEND_MESSAGE } from '../lib/graphql'
+import { SEARCH_WEB, SEND_MESSAGE, GET_MESSAGES } from '../lib/graphql'
 
 interface Message {
   id: string
@@ -36,18 +36,48 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
   // GraphQL 뮤테이션과 쿼리
   const [searchWeb] = useLazyQuery(SEARCH_WEB)
   const [sendMessage] = useMutation(SEND_MESSAGE)
+  
+  // 메시지 히스토리 쿼리
+  const { data: messagesData, loading: messagesLoading, refetch: refetchMessages } = useQuery(GET_MESSAGES, {
+    variables: { conversationId: selectedConversationId || '' },
+    skip: !selectedConversationId,
+    fetchPolicy: 'cache-and-network'
+  })
 
   // 선택된 대화가 변경될 때 메시지 로드
   useEffect(() => {
     if (selectedConversationId) {
-      const savedMessages = localStorage.getItem(`messages_${selectedConversationId}`)
-      if (savedMessages) {
-        setMessages(JSON.parse(savedMessages))
+      // 백엔드에서 메시지 히스토리 불러오기
+      if (messagesData?.messages) {
+        const backendMessages = messagesData.messages.map((msg: any) => ({
+          id: msg.id,
+          content: msg.content,
+          role: msg.role,
+          createdAt: msg.createdAt,
+          sources: msg.sources || [],
+          contextInfo: {
+            shortTermMemory: 0,
+            longTermMemory: 0,
+            webSearch: msg.sources?.length || 0
+          }
+        }))
+        setMessages(backendMessages)
+        
+        // 로컬 스토리지에도 저장 (백업용)
+        saveMessages(selectedConversationId, backendMessages)
       } else {
-        setMessages([])
+        // 백엔드에 메시지가 없으면 로컬 스토리지에서 확인
+        const savedMessages = localStorage.getItem(`messages_${selectedConversationId}`)
+        if (savedMessages) {
+          setMessages(JSON.parse(savedMessages))
+        } else {
+          setMessages([])
+        }
       }
+    } else {
+      setMessages([])
     }
-  }, [selectedConversationId])
+  }, [selectedConversationId, messagesData])
 
   // 메시지를 로컬 스토리지에 저장
   const saveMessages = (conversationId: string, messages: Message[]) => {
@@ -112,6 +142,12 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
 
         const finalMessages = [...updatedMessages, aiMessage]
         setMessages(finalMessages)
+        
+        // 로컬 스토리지에 저장
+        saveMessages(selectedConversationId, finalMessages)
+        
+        // 백엔드에서 메시지 히스토리 새로고침
+        refetchMessages()
       }
     } catch (error) {
       console.error('Error sending message:', error)
@@ -126,6 +162,9 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
 
       const finalMessages = [...updatedMessages, errorMessage]
       setMessages(finalMessages)
+      
+      // 로컬 스토리지에 저장
+      saveMessages(selectedConversationId, finalMessages)
     } finally {
       setIsLoading(false)
     }
@@ -180,9 +219,19 @@ export function ChatInterface({ selectedConversationId, onConversationSelect }: 
     <div className="flex-1 flex flex-col h-full">
       {/* 메시지 목록 */}
       <div className="messages-container p-4 min-h-0">
+        {/* 메시지 히스토리 로딩 상태 */}
+        {messagesLoading && (
+          <div className="flex items-center justify-center py-6">
+            <div className="flex items-center space-x-3 text-gray-600">
+              <div className="loading-spinner h-5 w-5"></div>
+              <span className="text-sm font-medium">대화 히스토리를 불러오는 중...</span>
+            </div>
+          </div>
+        )}
+        
         <MessageList messages={messages} />
         
-        {/* 로딩 상태 표시 */}
+        {/* 메시지 전송 로딩 상태 */}
         {isLoading && (
           <div className="flex items-center justify-center py-6 mt-4 bg-gray-50 rounded-lg border border-gray-200">
             <div className="flex items-center space-x-3 text-gray-600">

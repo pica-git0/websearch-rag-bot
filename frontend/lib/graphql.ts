@@ -55,6 +55,7 @@ export const GET_MESSAGES = gql`
       content
       role
       createdAt
+      sources
     }
   }
 `;
