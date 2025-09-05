@@ -78,6 +78,17 @@ class TopicBasedChatResponse(BaseModel):
     conversation_id: str
     context_info: Optional[Dict[str, int]] = None
 
+class ConversationalChatRequest(BaseModel):
+    message: str
+    conversation_id: Optional[str] = None
+    use_web_search: bool = True
+
+class ConversationalChatResponse(BaseModel):
+    response: str
+    sources: List[str]
+    conversation_id: str
+    context_info: Optional[Dict[str, int]] = None
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     """요청 로깅 미들웨어"""
@@ -225,6 +236,47 @@ async def chat_topic_based(request: TopicBasedChatRequest):
         duration = time.time() - start_time
         logging_service.log_error(e, {
             "endpoint": "/chat/topic-based",
+            "message": request.message,
+            "duration": duration
+        })
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/chat/conversational", response_model=ConversationalChatResponse)
+async def chat_conversational(request: ConversationalChatRequest):
+    start_time = time.time()
+    
+    try:
+        logging_service.log_application_event(
+            "conversational_chat_request", 
+            "Conversational chat request received", 
+            message_length=len(request.message),
+            use_web_search=request.use_web_search
+        )
+        
+        response, sources, conversation_id, context_info = await rag_service.chat_with_memory(
+            request.message, 
+            request.conversation_id,
+            request.use_web_search
+        )
+        
+        duration = time.time() - start_time
+        logging_service.log_performance(
+            "conversational_chat_processing", 
+            duration,
+            message_length=len(request.message),
+            sources_count=len(sources)
+        )
+        
+        return ConversationalChatResponse(
+            response=response,
+            sources=sources,
+            conversation_id=conversation_id,
+            context_info=context_info
+        )
+    except Exception as e:
+        duration = time.time() - start_time
+        logging_service.log_error(e, {
+            "endpoint": "/chat/conversational",
             "message": request.message,
             "duration": duration
         })
