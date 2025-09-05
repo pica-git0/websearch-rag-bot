@@ -70,7 +70,7 @@ export function MessageInput({
           </svg>
           <span className="text-sm text-gray-600">구조화된 답변</span>
           <span className="text-xs text-gray-400">
-            {useStructuredResponse ? '(체계적 분석)' : '(일반 답변)'}
+            {useStructuredResponse ? '(체계적 분석)' : '(자연스러운 대화)'}
           </span>
         </div>
         <button
@@ -100,9 +100,9 @@ export function MessageInput({
             placeholder={
               disabled
                 ? '대화를 선택해주세요'
-                : useWebSearch
+                : useStructuredResponse
                 ? '검색하고 싶은 내용을 입력하세요 (Enter로 전송, Shift+Enter로 줄바꿈)'
-                : '질문이나 대화를 입력하세요 (로컬 메모리만 사용)'
+                : '자연스럽게 대화해보세요 (Enter로 전송, Shift+Enter로 줄바꿈)'
             }
             className="input-field resize-none overflow-hidden"
             style={{

@@ -79,7 +79,7 @@ export class ChatService {
         console.log('RAG Service HTTP 요청 전송 중...');
         
         // 구조화된 답변 사용 여부에 따라 다른 엔드포인트 호출
-        const endpoint = useStructuredResponse ? '/chat/structured' : '/chat';
+        const endpoint = useStructuredResponse ? '/chat/structured' : '/chat/conversational';
         console.log(`사용할 엔드포인트: ${endpoint}`);
         
         const response = await firstValueFrom(
