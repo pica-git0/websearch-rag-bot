@@ -167,6 +167,10 @@ services:
       - POSTGRES_PASSWORD=password
       - KAFKA_BROKERS=kafka:29092
       - ELASTICSEARCH_URL=http://elasticsearch:9200
+      # API 키들은 환경 변수에서 가져오거나 .env 파일에서 설정
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-your_openai_api_key_here}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-your_google_api_key_here}
+      - GOOGLE_CSE_ID=${GOOGLE_CSE_ID:-your_google_custom_search_engine_id_here}
     depends_on:
       - postgres
       - qdrant
