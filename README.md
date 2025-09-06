@@ -48,7 +48,28 @@ websearch-rag-bot/
 
 ## 시작하기
 
-1. **환경 설정**
+1. **환경 변수 설정**
+
+프로젝트 루트에 `.env` 파일을 생성하고 API 키들을 설정하세요:
+```bash
+# 프로젝트 루트에 .env 파일 생성
+touch .env
+```
+
+`.env` 파일에 다음 내용을 추가하세요:
+```env
+# OpenAI API 설정
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Google Custom Search API 설정
+GOOGLE_API_KEY=your_google_api_key_here
+GOOGLE_CSE_ID=your_google_custom_search_engine_id_here
+
+```
+
+**중요**: 실제 API 키 값으로 교체해야 합니다!
+
+2. **시스템 시작**
 ```bash
 # 전체 시스템 시작 (로깅 시스템 포함)
 ./start.sh
@@ -57,12 +78,12 @@ websearch-rag-bot/
 docker-compose up -d
 ```
 
-2. **접속**
+3. **접속**
 - Frontend: http://localhost:3000
 - Backend GraphQL: http://localhost:4000/graphql
 - RAG Service: http://localhost:8000
 
-3. **모니터링 및 로깅**
+4. **모니터링 및 로깅**
 - Grafana: http://localhost:3001 (admin/admin)
 - Prometheus: http://localhost:9090
 - Kibana: http://localhost:5601

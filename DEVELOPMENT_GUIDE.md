@@ -146,16 +146,24 @@ cp frontend/env.example frontend/.env.local
 ```
 
 #### RAG Service 환경 변수
+프로젝트 루트에 `.env` 파일을 생성하고 API 키들을 설정하세요:
 ```bash
-cp rag-service/env.example rag-service/.env
+# 프로젝트 루트에 .env 파일 생성
+touch .env
 ```
 
-**중요**: RAG Service의 `.env` 파일에서 다음 API 키들을 설정해야 합니다:
+`.env` 파일에 다음 내용을 추가하세요:
 ```env
+# OpenAI API 설정
 OPENAI_API_KEY=your_openai_api_key_here
+
+# Google Custom Search API 설정
 GOOGLE_API_KEY=your_google_api_key_here
 GOOGLE_CSE_ID=your_google_custom_search_engine_id_here
+
 ```
+
+**중요**: 실제 API 키 값으로 교체해야 합니다!
 
 ### 4. 시스템 시작
 ```bash
