@@ -1,0 +1,273 @@
+{
+  "id": null,
+  "title": "🚨 Error Tracking & Stack Traces",
+  "tags": ["error", "tracing", "debugging"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "🔥 Error Rate",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(backend_requests_total{status=~\"4.*|5.*\"}[5m]) * 60",
+          "legendFormat": "{{status}} errors/min",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 5}
+            ]
+          }
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+    },
+    {
+      "id": 2,
+      "title": "📊 Request Status Overview",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(backend_requests_total{status=~\"2.*\"})",
+          "legendFormat": "Success (2xx)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(backend_requests_total{status=~\"4.*\"})",
+          "legendFormat": "Client Errors (4xx)",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(backend_requests_total{status=~\"5.*\"})",
+          "legendFormat": "Server Errors (5xx)",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+    },
+    {
+      "id": 3,
+      "title": "🔍 Recent Traces with Errors",
+      "type": "table",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "queryType": "search",
+          "serviceName": "",
+          "spanName": "",
+          "tags": "error=true|status.code=error|http.status_code>=400",
+          "minDuration": "",
+          "maxDuration": "",
+          "limit": 20,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {},
+            "renameByName": {
+              "traceID": "Trace ID",
+              "rootServiceName": "Service",
+              "rootTraceName": "Operation",
+              "startTimeUnixNano": "Start Time",
+              "durationMs": "Duration (ms)"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "displayMode": "basic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName", 
+              "options": "Trace ID"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "View Trace",
+                    "url": "/explore?orgId=1&left=%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22query%22:%22${__data.fields[\\\"Trace ID\\\"]}\\\",\\\"queryType\\\":%22traceId%22%7D%5D,%22range%22:%7B%22from%22:%22now-1h%22,%22to%22:%22now%22%7D%7D",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+    },
+    {
+      "id": 4,
+      "title": "📝 Error Logs with Trace Context",
+      "type": "table",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "elasticsearch"
+      },
+      "targets": [
+        {
+          "query": "(status_code:>=400 OR type.keyword:error) AND trace_id:*",
+          "metrics": [
+            {"id": "1", "type": "rawdocument", "field": "", "settings": {"size": "20"}}
+          ],
+          "bucketAggs": [],
+          "timeField": "@timestamp",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {"_id": true, "_index": true, "_type": true},
+            "renameByName": {
+              "@timestamp": "Time",
+              "method": "Method",
+              "url": "URL",
+              "status_code": "Status",
+              "trace_id": "Trace ID",
+              "span_id": "Span ID",
+              "error_message": "Error Message",
+              "message": "Message"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "displayMode": "basic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Trace ID"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "View in Tempo",
+                    "url": "/explore?orgId=1&left=%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22query%22:%22${__data.fields[\\\"Trace ID\\\"]}\\\",\\\"queryType\\\":%22traceId%22%7D%5D,%22range%22:%7B%22from%22:%22now-1h%22,%22to%22:%22now%22%7D%7D",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+    },
+    {
+      "id": 5,
+      "title": "⚡ Response Time by Status",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(backend_request_duration_seconds_bucket{status=~\"2.*\"}[5m])) by (le)) * 1000",
+          "legendFormat": "95th - Success (2xx)",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(backend_request_duration_seconds_bucket{status=~\"4.*\"}[5m])) by (le)) * 1000",
+          "legendFormat": "95th - Client Errors (4xx)",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(backend_request_duration_seconds_bucket{status=~\"5.*\"}[5m])) by (le)) * 1000",
+          "legendFormat": "95th - Server Errors (5xx)",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24}
+    },
+    {
+      "id": 6,
+      "title": "🌐 Service Dependencies",
+      "type": "nodeGraph",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "queryType": "serviceMap",
+          "serviceName": "",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24}
+    }
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "trace_id",
+        "type": "textbox",
+        "label": "Trace ID",
+        "description": "Enter trace ID to investigate specific error"
+      }
+    ]
+  }
+}

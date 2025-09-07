@@ -10,13 +10,14 @@ receivers:
             - "http://localhost:*"
             - "http://*"
   
-  # Collect logs from Kafka
-  kafka:
-    protocol_version: 2.6.0
-    brokers:
-      - kafka:29092
-    topic: application-logs
-    group_id: otel-collector
+  # Collect logs from Kafka (optional)
+  # kafka:
+  #   protocol_version: 2.6.0
+  #   brokers:
+  #     - kafka:29092
+  #   topic: application-logs
+  #   group_id: otel-collector
+  #   encoding: json
 
   # Prometheus scraping
   prometheus:
@@ -83,8 +84,8 @@ service:
       exporters: [prometheus, logging]
     
     logs:
-      receivers: [otlp, kafka]
-      processors: [resource/logs, batch]
+      receivers: [otlp]
+      processors: [batch]
       exporters: [loki, logging]
 
   extensions: []

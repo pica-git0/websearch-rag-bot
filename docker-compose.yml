@@ -135,20 +135,32 @@ services:
 
   # Grafana
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:10.2.0
     ports:
       - "3001:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_PLUGINS_AUTO_INSTALL_PLUGINS=false
+      - GF_PLUGINS_PLUGIN_ADMIN_ENABLED=false
+      - GF_PLUGINS_PLUGIN_ADMIN_EXTERNAL_MANAGE_ENABLED=false
     volumes:
       - grafana_data:/var/lib/grafana
       - ./logging/grafana/provisioning:/etc/grafana/provisioning
       - ./logging/grafana/dashboards:/var/lib/grafana/dashboards
+      - ./logging/grafana/grafana.ini:/etc/grafana/grafana.ini
     depends_on:
       - prometheus
       - elasticsearch
+      - loki
+      - tempo
     networks:
       - websearch-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # RAG Service (Python + LangChain)
   rag-service:
@@ -292,6 +304,8 @@ services:
       - tempo
       - loki
       - prometheus
+      - kafka
+    restart: unless-stopped
 
 volumes:
   postgres_data:
