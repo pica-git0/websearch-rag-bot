@@ -1,0 +1,90 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - "http://localhost:*"
+            - "http://*"
+  
+  # Collect logs from Kafka
+  kafka:
+    protocol_version: 2.6.0
+    brokers:
+      - kafka:29092
+    topic: application-logs
+    group_id: otel-collector
+
+  # Prometheus scraping
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'backend'
+          static_configs:
+            - targets: ['backend:4000']
+          metrics_path: '/metrics'
+          scrape_interval: 15s
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+  
+  resource:
+    attributes:
+      - key: service.name
+        value: websearch-rag-bot
+        action: upsert
+      - key: deployment.environment
+        value: development
+        action: upsert
+
+  # Extract trace context from logs
+  resource/logs:
+    attributes:
+      - key: loki.resource.labels
+        value: service.name, service.version, deployment.environment
+        action: upsert
+
+exporters:
+  # Send traces to Tempo
+  otlp/tempo:
+    endpoint: http://tempo:4317
+    tls:
+      insecure: true
+    headers:
+      "X-Scope-OrgID": "1"
+
+  # Send logs to Loki
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+    
+  # Send metrics to Prometheus
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+
+  # Debug logging
+  logging:
+    loglevel: info
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [resource, batch]
+      exporters: [otlp/tempo, logging]
+    
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [resource, batch]
+      exporters: [prometheus, logging]
+    
+    logs:
+      receivers: [otlp, kafka]
+      processors: [resource/logs, batch]
+      exporters: [loki, logging]
+
+  extensions: []

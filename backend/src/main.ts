@@ -1,8 +1,13 @@
+// Initialize tracing BEFORE importing any other modules
+import { initializeTracing } from './tracing';
+initializeTracing();
+
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { LoggingService } from './logging/logging.service';
 import { Request, Response, NextFunction } from 'express';
+import { trace, context, SpanStatusCode } from '@opentelemetry/api';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

@@ -236,6 +236,63 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # Tempo - Distributed Tracing
+  tempo:
+    image: grafana/tempo:2.3.0
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./observability/tempo/tempo.yaml:/etc/tempo.yaml
+      - tempo_data:/var/tempo
+    ports:
+      - "3200:3200"   # Tempo
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    networks:
+      - websearch-network
+
+  # Loki - Log Aggregation
+  loki:
+    image: grafana/loki:2.9.0
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./observability/loki/loki.yaml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - websearch-network
+
+  # Promtail - Log Collection Agent
+  promtail:
+    image: grafana/promtail:2.9.0
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./observability/promtail/promtail.yaml:/etc/promtail/config.yml
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    networks:
+      - websearch-network
+    depends_on:
+      - loki
+
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.89.0
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./observability/otel/collector.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "8888:8888"   # Prometheus metrics
+      - "8889:8889"   # Prometheus exporter metrics
+      - "4319:4317"   # OTLP gRPC receiver
+      - "4320:4318"   # OTLP HTTP receiver
+    networks:
+      - websearch-network
+    depends_on:
+      - tempo
+      - loki
+      - prometheus
+
 volumes:
   postgres_data:
   qdrant_data:
@@ -245,6 +302,8 @@ volumes:
   elasticsearch_data:
   prometheus_data:
   grafana_data:
+  tempo_data:
+  loki_data:
 
 networks:
   websearch-network:

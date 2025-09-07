@@ -3,6 +3,7 @@ import { Kafka, Producer } from 'kafkajs';
 import { Client } from '@elastic/elasticsearch';
 import { register, Counter, Histogram, Gauge, collectDefaultMetrics } from 'prom-client';
 import { ConfigService } from '@nestjs/config';
+import { trace, context, SpanStatusCode, SpanKind } from '@opentelemetry/api';
 
 // Prometheus 메트릭 정의
 const REQUEST_COUNT = new Counter({
@@ -121,6 +122,13 @@ export class LoggingService {
   }
 
   async logRequest(method: string, url: string, statusCode: number, duration: number, metadata?: any) {
+    const tracer = trace.getTracer('websearch-rag-bot-backend');
+    const activeSpan = trace.getActiveSpan();
+    
+    // Get trace context
+    const traceId = activeSpan ? activeSpan.spanContext().traceId : 'no-trace';
+    const spanId = activeSpan ? activeSpan.spanContext().spanId : 'no-span';
+
     const logData = {
       timestamp: new Date().toISOString(),
       type: 'request',
@@ -129,8 +137,24 @@ export class LoggingService {
       status_code: statusCode,
       duration,
       service: 'backend',
+      trace_id: traceId,
+      span_id: spanId,
       ...metadata,
     };
+
+    // Add span attributes if span exists
+    if (activeSpan) {
+      activeSpan.setAttributes({
+        'http.method': method,
+        'http.url': url,
+        'http.status_code': statusCode,
+        'http.response_time_ms': duration * 1000,
+      });
+
+      if (statusCode >= 400) {
+        activeSpan.setStatus({ code: SpanStatusCode.ERROR, message: `HTTP ${statusCode}` });
+      }
+    }
 
     // Prometheus 메트릭 업데이트
     REQUEST_COUNT.labels(url, statusCode.toString()).inc();
