@@ -96,8 +96,8 @@
     },
     {
       "id": 4,
-      "title": "Application Events",
-      "type": "stat",
+      "title": "Application Events Over Time", 
+      "type": "timeseries",
       "datasource": "Elasticsearch",
       "targets": [
         {
@@ -106,6 +106,16 @@
             {
               "id": "1",
               "type": "count"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "@timestamp",
+              "settings": {
+                "interval": "5m"
+              }
             }
           ],
           "timeField": "@timestamp"
@@ -144,12 +154,12 @@
     },
     {
       "id": 6,
-      "title": "GraphQL Operations",
+      "title": "Performance Logs",
       "type": "stat",
       "datasource": "Elasticsearch",
       "targets": [
         {
-          "query": "type:graphql",
+          "query": "type:performance",
           "metrics": [
             {
               "id": "1",
