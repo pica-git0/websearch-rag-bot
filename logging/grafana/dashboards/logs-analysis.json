@@ -8,10 +8,29 @@
       "id": 1,
       "title": "Log Volume by Service",
       "type": "stat",
+      "datasource": "Elasticsearch",
       "targets": [
         {
-          "expr": "count_over_time({service=~\".*\"}[5m])",
-          "legendFormat": "{{service}}"
+          "query": "*",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "terms",
+              "field": "service.keyword",
+              "settings": {
+                "size": "10",
+                "order": "desc",
+                "orderBy": "_count"
+              }
+            }
+          ],
+          "timeField": "@timestamp"
         }
       ],
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
@@ -20,10 +39,27 @@
       "id": 2,
       "title": "Error Rate",
       "type": "timeseries",
+      "datasource": "Elasticsearch",
       "targets": [
         {
-          "expr": "rate({type=\"error\"}[5m])",
-          "legendFormat": "Errors per second"
+          "query": "type:error",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "@timestamp",
+              "settings": {
+                "interval": "1m"
+              }
+            }
+          ],
+          "timeField": "@timestamp"
         }
       ],
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
@@ -32,10 +68,28 @@
       "id": 3,
       "title": "Performance Metrics",
       "type": "timeseries",
+      "datasource": "Elasticsearch",
       "targets": [
         {
-          "expr": "avg_over_time({type=\"performance\"} | json | duration[5m])",
-          "legendFormat": "Average Duration"
+          "query": "duration:*",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "avg",
+              "field": "duration"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "@timestamp",
+              "settings": {
+                "interval": "1m"
+              }
+            }
+          ],
+          "timeField": "@timestamp"
         }
       ],
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
@@ -44,10 +98,17 @@
       "id": 4,
       "title": "Application Events",
       "type": "stat",
+      "datasource": "Elasticsearch",
       "targets": [
         {
-          "expr": "count_over_time({type=\"application\"}[5m])",
-          "legendFormat": "Application Events"
+          "query": "type:application",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "timeField": "@timestamp"
         }
       ],
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
@@ -56,10 +117,27 @@
       "id": 5,
       "title": "HTTP Request Rate",
       "type": "timeseries",
+      "datasource": "Elasticsearch",
       "targets": [
         {
-          "expr": "rate({type=\"request\"}[5m])",
-          "legendFormat": "Requests per second"
+          "query": "type:request",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "@timestamp",
+              "settings": {
+                "interval": "1m"
+              }
+            }
+          ],
+          "timeField": "@timestamp"
         }
       ],
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
@@ -68,10 +146,17 @@
       "id": 6,
       "title": "GraphQL Operations",
       "type": "stat",
+      "datasource": "Elasticsearch",
       "targets": [
         {
-          "expr": "count_over_time({type=\"graphql\"}[5m])",
-          "legendFormat": "GraphQL Operations"
+          "query": "type:graphql",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "timeField": "@timestamp"
         }
       ],
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}

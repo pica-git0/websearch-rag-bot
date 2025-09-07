@@ -1,13 +1,12 @@
-# 대시보드 프로비저닝 비활성화
-# apiVersion: 1
+apiVersion: 1
 
-# providers:
-#   - name: 'default'
-#     orgId: 1
-#     folder: ''
-#     type: file
-#     disableDeletion: false
-#     updateIntervalSeconds: 10
-#     allowUiUpdates: true
-#     options:
-#       path: /var/lib/grafana/dashboards
+providers:
+  - name: 'default'
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
