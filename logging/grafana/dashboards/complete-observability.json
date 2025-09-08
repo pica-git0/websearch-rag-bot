@@ -80,30 +80,9 @@
       },
       "targets": [
         {
-          "queryType": "search",
-          "serviceName": "",
-          "spanName": "",
-          "tags": "service.name=websearch-rag-bot",
-          "minDuration": "",
-          "maxDuration": "",
-          "limit": 15,
-          "refId": "A"
-        }
-      ],
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {},
-            "indexByName": {},
-            "renameByName": {
-              "traceID": "Trace ID",
-              "rootServiceName": "Service",
-              "rootTraceName": "Operation",
-              "startTimeUnixNano": "Start Time",
-              "durationMs": "Duration (ms)"
-            }
-          }
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ rootServiceName = \"websearch-rag-bot\" }"
         }
       ],
       "fieldConfig": {
@@ -115,8 +94,8 @@
         "overrides": [
           {
             "matcher": {
-              "id": "byName", 
-              "options": "Trace ID"
+              "id": "byName",
+              "options": "traceID"
             },
             "properties": [
               {
@@ -124,7 +103,7 @@
                 "value": [
                   {
                     "title": "🔍 View Full Trace",
-                    "url": "/explore?orgId=1&left=%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22query%22:%22${__data.fields[\\\"Trace ID\\\"]}\\\",\\\"queryType\\\":%22traceId%22%7D%5D,%22range%22:%7B%22from%22:%22now-1h%22,%22to%22:%22now%22%7D%7D",
+                    "url": "/explore?orgId=1&left={\"datasource\":\"tempo\",\"queries\":[{\"query\":\"{ trace_id = \\\"${__data.fields[traceID]}\\\" }\",\"queryType\":\"traceql\"}],\"range\":{\"from\":\"now-1h\",\"to\":\"now\"}}",
                     "targetBlank": true
                   }
                 ]
@@ -133,7 +112,7 @@
           }
         ]
       },
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 }
     },
     {
       "id": 4,
@@ -271,7 +250,6 @@
         {
           "queryType": "serviceMap",
           "serviceName": "",
-          "tags": "service.name=websearch-rag-bot",
           "refId": "A"
         }
       ],
