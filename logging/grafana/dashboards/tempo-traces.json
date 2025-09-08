@@ -26,7 +26,7 @@
         {
           "queryType": "traceql",
           "refId": "A",
-          "query": "{ rootServiceName = \"websearch-rag-bot\" }"
+          "query": "{}"
         }
       ],
       "transformations": [
@@ -59,8 +59,8 @@
                 "id": "links",
                 "value": [
                   {
-                    "title": "🔍 View Trace Details",
-                    "url": "/explore?orgId=1&left=%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22query%22:%22${__data.fields[\\\"Trace ID\\\"]}\\\",%22queryType%22:%22traceId%22%7D%5D,%22range%22:%7B%22from%22:%22now-1h%22,%22to%22:%22now%22%7D%7D",
+                    "title": "🔍 View Full Trace",
+                    "url": "/explore?orgId=1&left=%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22query%22:%22${__data.fields[\\\"Trace ID\\\"]}%22,%22queryType%22:%22traceId%22%7D%5D,%22range%22:%7B%22from%22:%22now-1h%22,%22to%22:%22now%22%7D%7D",
                     "targetBlank": true
                   }
                 ]
@@ -83,50 +83,11 @@
         ]
       },
       "gridPos": {"h": 12, "w": 24, "x": 0, "y": 4}
-    },
-    {
-      "id": 3,
-      "title": "🎯 Individual Trace Viewer",
-      "type": "traces",
-      "datasource": {
-        "type": "tempo",
-        "uid": "tempo"
-      },
-      "targets": [
-        {
-          "query": "${trace_id:raw}",
-          "queryType": "traceId",
-          "refId": "A",
-          "hide": true
-        }
-      ],
-      "options": {
-        "showWelcome": true
-      },
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 16}
     }
   ],
   "time": {
     "from": "now-15m",
     "to": "now"
   },
-  "refresh": "30s",
-  "templating": {
-    "list": [
-      {
-        "name": "trace_id",
-        "type": "textbox",
-        "label": "🔍 Trace ID",
-        "description": "Enter a specific trace ID to view detailed trace information",
-        "current": {
-          "value": "",
-          "text": ""
-        }
-      }
-    ]
-  }
+  "refresh": "30s"
 }
