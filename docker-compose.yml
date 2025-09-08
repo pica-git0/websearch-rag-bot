@@ -211,6 +211,8 @@ services:
       - RAG_SERVICE_URL=http://rag-service:8000
       - KAFKA_BROKERS=kafka:29092
       - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - OTEL_SERVICE_NAME=websearch-rag-bot
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=websearch-rag-bot,service.version=1.0.0,service.namespace=websearch,service.instance.id=backend-1,deployment.environment=development,application=websearch-rag-bot,component=backend,tier=api,framework=nestjs
     depends_on:
       - postgres
       - rag-service
