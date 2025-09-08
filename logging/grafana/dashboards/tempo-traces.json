@@ -1,0 +1,132 @@
+{
+  "id": null,
+  "title": "🎯 Tempo Traces Debug",
+  "tags": ["tempo", "traces", "debug"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "📊 Tempo API Direct Test",
+      "type": "text",
+      "gridPos": {"h": 4, "w": 24, "x": 0, "y": 0},
+      "options": {
+        "content": "**Tempo Status:** Connected ✅\n\n**Direct API Test:** \n- Tempo URL: `http://localhost:3200`\n- Search API: `http://localhost:3200/api/search`\n- Ready Status: `http://localhost:3200/ready`\n\n**Manual Test:**\n```bash\ncurl http://localhost:3200/api/search\n```",
+        "mode": "markdown"
+      }
+    },
+    {
+      "id": 2,
+      "title": "🔍 Tempo Traces List",
+      "type": "table",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "queryType": "traceql",
+          "refId": "A",
+          "query": "{ rootServiceName = \"websearch-rag-bot\" }"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {},
+            "renameByName": {
+              "traceID": "Trace ID",
+              "rootTraceName": "Operation",
+              "startTimeUnixNano": "Start Time",
+              "durationMs": "Duration (ms)"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "displayMode": "basic",
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "Trace ID"},
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "🔍 View Trace Details",
+                    "url": "/explore?orgId=1&left=%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22query%22:%22${__data.fields[\\\"Trace ID\\\"]}\\\",%22queryType%22:%22traceId%22%7D%5D,%22range%22:%7B%22from%22:%22now-1h%22,%22to%22:%22now%22%7D%7D",
+                    "targetBlank": true
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 300
+              }
+            ]
+          },
+          {
+            "matcher": {"id": "byName", "options": "Duration (ms)"},
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {"h": 12, "w": 24, "x": 0, "y": 4}
+    },
+    {
+      "id": 3,
+      "title": "🎯 Individual Trace Viewer",
+      "type": "traces",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "query": "${trace_id:raw}",
+          "queryType": "traceId",
+          "refId": "A",
+          "hide": true
+        }
+      ],
+      "options": {
+        "showWelcome": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 16}
+    }
+  ],
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "trace_id",
+        "type": "textbox",
+        "label": "🔍 Trace ID",
+        "description": "Enter a specific trace ID to view detailed trace information",
+        "current": {
+          "value": "",
+          "text": ""
+        }
+      }
+    ]
+  }
+}
